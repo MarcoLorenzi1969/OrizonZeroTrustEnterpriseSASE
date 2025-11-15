@@ -1,0 +1,12 @@
+{
+  "name": "@orizon/vnc-dependencies",
+  "version": "1.0.0",
+  "description": "Additional dependencies for VNC Remote Desktop feature",
+  "dependencies": {
+    "@novnc/novnc": "^1.5.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "install-vnc": "npm install @novnc/novnc"
+  }
+}

@@ -1,0 +1,46 @@
+#!/usr/bin/expect -f
+###############################################################################
+# Orizon Zero Trust Connect - Automated Deployment with Expect
+# For: Marco @ Syneto/Orizon
+###############################################################################
+
+set timeout 300
+set server "46.101.189.126"
+set username "orizzonti"
+set password "ripper-FfFIlBelloccio.1969F"
+
+# Upload deployment script
+puts "\n\033\[1;33m[1/7] Uploading deployment script...\033\[0m"
+spawn scp -o StrictHostKeyChecking=no deploy/deploy_manual.sh ${username}@${server}:~/
+expect {
+    "password:" {
+        send "${password}\r"
+        expect eof
+    }
+}
+
+puts "\033\[0;32m✓ Script uploaded\033\[0m"
+
+# Execute deployment script
+puts "\n\033\[1;33m[2/7] Executing installation on server...\033\[0m"
+spawn ssh -o StrictHostKeyChecking=no ${username}@${server} "bash ~/deploy_manual.sh"
+expect {
+    "password:" {
+        send "${password}\r"
+    }
+}
+
+expect {
+    "Setup complete!" {
+        puts "\033\[0;32m✓ Installation completed\033\[0m"
+    }
+    timeout {
+        puts "\033\[0;31m✗ Installation timeout\033\[0m"
+    }
+}
+
+expect eof
+
+puts "\n\033\[0;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033\[0m"
+puts "\033\[0;32m✓ Automated Deployment Complete!\033\[0m"
+puts "\033\[0;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033\[0m"

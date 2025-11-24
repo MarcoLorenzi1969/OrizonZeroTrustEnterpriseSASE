@@ -939,10 +939,12 @@
         // USERS MANAGEMENT
         async function loadUsers() {
             const data = await apiCall('/users');
-            if (data && data.users) {
-                currentData.users = data.users;
-                document.getElementById('usersCount').textContent = data.users.length;
-                renderUsersTable(data.users);
+            if (data) {
+                // Users endpoint returns array directly, not {users: [...]}
+                const usersList = Array.isArray(data) ? data : (data.users || []);
+                currentData.users = usersList;
+                document.getElementById('usersCount').textContent = usersList.length;
+                renderUsersTable(usersList);
             }
         }
 

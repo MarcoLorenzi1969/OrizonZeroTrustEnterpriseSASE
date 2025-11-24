@@ -3,7 +3,7 @@ Orizon Zero Trust Connect - ACL Rules API Endpoints
 For: Marco @ Syneto/Orizon
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from loguru import logger
@@ -12,16 +12,17 @@ from app.core.database import get_db
 from app.auth.dependencies import get_current_user, require_role
 from app.models.user import User, UserRole
 from app.services.acl_service import acl_service
-from app.schemas.access_rule import ACLRuleCreate, ACLRuleResponse
+from app.schemas.access_rule import AccessRuleCreate, AccessRuleResponse
 from app.middleware.rate_limit import rate_limit
 
 router = APIRouter()
 
 
-@router.post("/", response_model=ACLRuleResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=AccessRuleResponse, status_code=status.HTTP_201_CREATED)
 @rate_limit("30/minute")
 async def create_acl_rule(
-    rule_data: ACLRuleCreate,
+    request: Request,
+    rule_data: AccessRuleCreate,
     current_user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db)
 ):
@@ -51,7 +52,7 @@ async def create_acl_rule(
 
         logger.info(f"✅ ACL rule created via API: {rule.id} by {current_user.email}")
 
-        return ACLRuleResponse(
+        return AccessRuleResponse(
             id=str(rule.id),
             source_node_id=rule.source_node_id,
             dest_node_id=rule.dest_node_id,
@@ -75,7 +76,7 @@ async def create_acl_rule(
         )
 
 
-@router.get("/", response_model=List[ACLRuleResponse])
+@router.get("/", response_model=List[AccessRuleResponse])
 async def get_all_acl_rules(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -91,7 +92,7 @@ async def get_all_acl_rules(
         rules = await acl_service.get_all_rules(db, skip=skip, limit=limit)
 
         return [
-            ACLRuleResponse(
+            AccessRuleResponse(
                 id=str(rule.id),
                 source_node_id=rule.source_node_id,
                 dest_node_id=rule.dest_node_id,
@@ -115,7 +116,7 @@ async def get_all_acl_rules(
         )
 
 
-@router.get("/node/{node_id}", response_model=List[ACLRuleResponse])
+@router.get("/node/{node_id}", response_model=List[AccessRuleResponse])
 async def get_node_acl_rules(
     node_id: str,
     current_user: User = Depends(get_current_user),
@@ -130,7 +131,7 @@ async def get_node_acl_rules(
         rules = await acl_service.get_rules_for_node(db, node_id)
 
         return [
-            ACLRuleResponse(
+            AccessRuleResponse(
                 id=str(rule.id),
                 source_node_id=rule.source_node_id,
                 dest_node_id=rule.dest_node_id,
@@ -157,6 +158,7 @@ async def get_node_acl_rules(
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
 @rate_limit("10/minute")
 async def delete_acl_rule(
+    request: Request,
     rule_id: str,
     current_user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db)
@@ -190,6 +192,7 @@ async def delete_acl_rule(
 @router.post("/{rule_id}/enable", status_code=status.HTTP_200_OK)
 @rate_limit("20/minute")
 async def enable_acl_rule(
+    request: Request,
     rule_id: str,
     current_user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db)
@@ -225,6 +228,7 @@ async def enable_acl_rule(
 @router.post("/{rule_id}/disable", status_code=status.HTTP_200_OK)
 @rate_limit("20/minute")
 async def disable_acl_rule(
+    request: Request,
     rule_id: str,
     current_user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db)

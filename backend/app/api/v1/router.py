@@ -14,7 +14,6 @@ from app.api.v1.endpoints import (
     metrics,
     provision,
     groups,
-    vnc,
 )
 
 api_router = APIRouter()
@@ -24,7 +23,6 @@ api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 api_router.include_router(nodes.router, prefix="/nodes", tags=["Nodes"])
 api_router.include_router(groups.router, prefix="/groups", tags=["Groups"])
 api_router.include_router(tunnels.router, prefix="/tunnels", tags=["Tunnels"])
-api_router.include_router(vnc.router, prefix="/vnc", tags=["VNC Remote Desktop"])
 api_router.include_router(acl.router, prefix="/acl", tags=["Access Control"])
 api_router.include_router(audit.router, prefix="/audit", tags=["Audit Logs"])
 api_router.include_router(twofa.router, prefix="/2fa", tags=["Two-Factor Authentication"])

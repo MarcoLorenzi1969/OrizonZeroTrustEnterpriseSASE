@@ -3,7 +3,7 @@ Orizon Zero Trust Connect - Audit Logs API Endpoints
 For: Marco @ Syneto/Orizon
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from datetime import datetime
@@ -22,6 +22,7 @@ router = APIRouter()
 @router.get("/")
 @rate_limit("100/minute")
 async def get_audit_logs(
+    request: Request,
     user_id: Optional[str] = Query(None),
     action: Optional[str] = Query(None),
     target_type: Optional[str] = Query(None),
@@ -84,6 +85,7 @@ async def get_audit_logs(
 @router.get("/export")
 @rate_limit("5/minute")
 async def export_audit_logs(
+    request: Request,
     format: str = Query("json", regex="^(json|csv|siem)$"),
     user_id: Optional[str] = Query(None),
     action: Optional[str] = Query(None),
@@ -161,6 +163,7 @@ async def export_audit_logs(
 @router.get("/statistics")
 @rate_limit("30/minute")
 async def get_audit_statistics(
+    request: Request,
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     current_user: User = Depends(require_role(UserRole.SUPER_ADMIN)),
@@ -191,6 +194,7 @@ async def get_audit_statistics(
 @router.post("/cleanup")
 @rate_limit("1/hour")
 async def cleanup_old_audit_logs(
+    request: Request,
     retention_days: int = Query(90, ge=1, le=365),
     current_user: User = Depends(require_role(UserRole.SUPERUSER)),
     db: AsyncSession = Depends(get_db)

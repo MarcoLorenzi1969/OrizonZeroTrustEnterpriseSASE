@@ -90,7 +90,7 @@ async def list_nodes(
     query = select(Node)
 
     # Filter by accessible nodes (group-based)
-    if current_user.role != UserRole.SUPER_USER:
+    if current_user.role != UserRole.SUPERUSER:
         if not accessible_node_ids:
             # User not in any group, return empty list
             return NodeList(nodes=[], total=0)
@@ -102,7 +102,7 @@ async def list_nodes(
 
     # Get total count
     count_query = select(Node)
-    if current_user.role != UserRole.SUPER_USER:
+    if current_user.role != UserRole.SUPERUSER:
         count_query = count_query.where(Node.id.in_(accessible_node_ids))
     result = await db.execute(count_query)
     total = len(result.scalars().all())
@@ -138,7 +138,7 @@ async def get_node(
         )
 
     # Check permissions via groups
-    if current_user.role != UserRole.SUPER_USER:
+    if current_user.role != UserRole.SUPERUSER:
         accessible_node_ids = await GroupService.get_accessible_nodes_for_user(db, current_user)
         if node_id not in accessible_node_ids:
             raise HTTPException(
@@ -172,7 +172,7 @@ async def update_node(
         )
 
     # Check permissions
-    if (current_user.role not in [UserRole.SUPER_USER, UserRole.SUPER_ADMIN, UserRole.ADMIN]
+    if (current_user.role not in [UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN]
         and node.owner_id != current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -214,7 +214,7 @@ async def delete_node(
         )
 
     # Check permissions
-    if (current_user.role not in [UserRole.SUPER_USER, UserRole.SUPER_ADMIN, UserRole.ADMIN]
+    if (current_user.role not in [UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN]
         and node.owner_id != current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -260,7 +260,7 @@ async def generate_provision_data(
         )
 
     # Check permissions
-    if (current_user.role not in [UserRole.SUPER_USER, UserRole.SUPER_ADMIN, UserRole.ADMIN]
+    if (current_user.role not in [UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN]
         and node.owner_id != current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

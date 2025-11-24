@@ -3,7 +3,7 @@ Orizon Zero Trust Connect - Tunnels API Endpoints
 For: Marco @ Syneto/Orizon
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from loguru import logger
@@ -26,6 +26,7 @@ router = APIRouter()
 @router.post("/", response_model=TunnelInfo, status_code=status.HTTP_201_CREATED)
 @rate_limit("20/minute")
 async def create_tunnel(
+    request: Request,
     tunnel_data: TunnelCreate,
     current_user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db)
@@ -112,6 +113,7 @@ async def get_tunnel_status(
 @router.delete("/{tunnel_id}", status_code=status.HTTP_204_NO_CONTENT)
 @rate_limit("10/minute")
 async def close_tunnel(
+    request: Request,
     tunnel_id: str,
     current_user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db)

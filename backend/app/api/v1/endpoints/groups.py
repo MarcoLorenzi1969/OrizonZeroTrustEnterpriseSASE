@@ -43,7 +43,7 @@ router = APIRouter()
 async def create_group(
     group_data: GroupCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.SUPER_USER, UserRole.SUPER_ADMIN, UserRole.ADMIN])),
+    current_user: User = Depends(require_role([UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN])),
 ):
     """
     Create a new group
@@ -135,7 +135,7 @@ async def get_group(
         )
 
     # Check if user has access to this group
-    if current_user.role != UserRole.SUPER_USER:
+    if current_user.role != UserRole.SUPERUSER:
         user_role = await GroupService.get_user_role_in_group(
             db, user_id=current_user.id, group_id=group_id
         )
@@ -235,7 +235,7 @@ async def get_group_members(
         )
 
     # Check access
-    if current_user.role != UserRole.SUPER_USER:
+    if current_user.role != UserRole.SUPERUSER:
         user_role = await GroupService.get_user_role_in_group(
             db, user_id=current_user.id, group_id=group_id
         )
@@ -268,7 +268,7 @@ async def add_user_to_group(
     group_id: str,
     user_data: AddUserToGroup,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.SUPER_USER, UserRole.SUPER_ADMIN, UserRole.ADMIN])),
+    current_user: User = Depends(require_role([UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN])),
 ):
     """
     Add user to group
@@ -276,7 +276,7 @@ async def add_user_to_group(
     Requires OWNER or ADMIN in group, or SUPERUSER
     """
     # Check permissions
-    if current_user.role != UserRole.SUPER_USER:
+    if current_user.role != UserRole.SUPERUSER:
         user_role = await GroupService.get_user_role_in_group(
             db, user_id=current_user.id, group_id=group_id
         )
@@ -304,11 +304,11 @@ async def add_users_to_group(
     group_id: str,
     users_data: AddUsersToGroup,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.SUPER_USER, UserRole.SUPER_ADMIN, UserRole.ADMIN])),
+    current_user: User = Depends(require_role([UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN])),
 ):
     """Add multiple users to group"""
     # Check permissions
-    if current_user.role != UserRole.SUPER_USER:
+    if current_user.role != UserRole.SUPERUSER:
         user_role = await GroupService.get_user_role_in_group(
             db, user_id=current_user.id, group_id=group_id
         )
@@ -381,7 +381,7 @@ async def get_group_nodes(
 ):
     """Get all nodes in a group"""
     # Verify access
-    if current_user.role != UserRole.SUPER_USER:
+    if current_user.role != UserRole.SUPERUSER:
         user_role = await GroupService.get_user_role_in_group(
             db, user_id=current_user.id, group_id=group_id
         )
@@ -414,11 +414,11 @@ async def add_node_to_group(
     group_id: str,
     node_data: AddNodeToGroup,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.SUPER_USER, UserRole.SUPER_ADMIN, UserRole.ADMIN])),
+    current_user: User = Depends(require_role([UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN])),
 ):
     """Add node to group"""
     # Check permissions
-    if current_user.role != UserRole.SUPER_USER:
+    if current_user.role != UserRole.SUPERUSER:
         user_role = await GroupService.get_user_role_in_group(
             db, user_id=current_user.id, group_id=group_id
         )
@@ -445,11 +445,11 @@ async def add_nodes_to_group(
     group_id: str,
     nodes_data: AddNodesToGroup,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.SUPER_USER, UserRole.SUPER_ADMIN, UserRole.ADMIN])),
+    current_user: User = Depends(require_role([UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN])),
 ):
     """Add multiple nodes to group"""
     # Check permissions
-    if current_user.role != UserRole.SUPER_USER:
+    if current_user.role != UserRole.SUPERUSER:
         user_role = await GroupService.get_user_role_in_group(
             db, user_id=current_user.id, group_id=group_id
         )

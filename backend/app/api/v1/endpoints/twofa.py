@@ -3,7 +3,7 @@ Orizon Zero Trust Connect - Two-Factor Authentication API Endpoints
 For: Marco @ Syneto/Orizon
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import List
@@ -39,6 +39,7 @@ class BackupCodesResponse(BaseModel):
 @router.post("/setup", response_model=TOTPSetupResponse)
 @rate_limit("5/hour")
 async def setup_2fa(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -86,6 +87,7 @@ async def setup_2fa(
 @router.post("/verify")
 @rate_limit("10/minute")
 async def verify_2fa_token(
+    request: Request,
     verify_data: TOTPVerifyRequest,
     enable_on_success: bool = True,
     current_user: User = Depends(get_current_user),
@@ -132,6 +134,7 @@ async def verify_2fa_token(
 @router.post("/disable")
 @rate_limit("5/hour")
 async def disable_2fa(
+    request: Request,
     verify_data: TOTPVerifyRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -182,6 +185,7 @@ async def disable_2fa(
 @router.post("/backup-codes", response_model=BackupCodesResponse)
 @rate_limit("3/day")
 async def generate_backup_codes(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -230,6 +234,7 @@ async def generate_backup_codes(
 @router.post("/backup-codes/verify")
 @rate_limit("10/hour")
 async def verify_backup_code(
+    request: Request,
     verify_data: TOTPVerifyRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)

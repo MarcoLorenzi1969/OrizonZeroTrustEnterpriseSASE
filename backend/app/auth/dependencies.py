@@ -110,6 +110,33 @@ require_admin = RoleChecker(UserRole.ADMIN)
 require_user = RoleChecker(UserRole.USER)
 
 
+# Flexible role checker function
+def require_role(roles):
+    """
+    Create role checker dependency for single role or list of roles
+
+    Args:
+        roles: UserRole or list of UserRole values
+
+    Returns:
+        RoleChecker dependency
+    """
+    if isinstance(roles, list):
+        # For multiple roles, accept any of them
+        async def check_any_role(current_user: User = Depends(get_current_user)) -> User:
+            for role in roles:
+                if check_permission(current_user.role, role):
+                    return current_user
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient permissions. Required one of: {[r.value for r in roles]}",
+            )
+        return check_any_role
+    else:
+        # Single role
+        return RoleChecker(roles)
+
+
 # Permission checkers
 async def can_create_users(
     current_user: User = Depends(get_current_user)

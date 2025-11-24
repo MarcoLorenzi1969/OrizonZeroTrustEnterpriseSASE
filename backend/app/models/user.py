@@ -85,7 +85,6 @@ class User(Base):
     # Relationships
     nodes = relationship("Node", back_populates="owner", cascade="all, delete-orphan")
     tunnels = relationship("Tunnel", back_populates="owner", cascade="all, delete-orphan")
-    vnc_sessions = relationship("VNCSession", back_populates="user", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<User {self.username} ({self.role})>"

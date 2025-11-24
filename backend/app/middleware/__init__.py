@@ -6,11 +6,9 @@ Custom middleware for rate limiting, logging, and audit
 """
 
 from .rate_limit import RateLimitMiddleware
-from .audit import AuditMiddleware
-from .request_id import RequestIDMiddleware
+from .audit_middleware import AuditMiddleware
 
 __all__ = [
     "RateLimitMiddleware",
     "AuditMiddleware",
-    "RequestIDMiddleware",
 ]

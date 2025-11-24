@@ -26,6 +26,7 @@
 
 - [Features](#features)
 - [Architecture](#architecture)
+- [Multi-Tenant System](#multi-tenant)
 - [Quick Start](#quick-start)
 - [Components](#components)
 - [Configuration](#configuration)
@@ -35,16 +36,24 @@
 - [Development](#development)
 - [License](#license)
 
+## 📖 Documentation
+
+- **[Multi-Tenant System Guide](./docs/MULTI_TENANT_SYSTEM.md)** - Complete guide to tenant management, group associations, and hierarchical access control
+- **[API Reference](./docs/API_REFERENCE.md)** - Full REST API documentation
+- **[Architecture Guide](./docs/ARCHITECTURE.md)** - System architecture and design patterns
+- **[Deployment Guide](./docs/DEPLOYMENT_GUIDE.md)** - Production deployment instructions
+
 ---
 
 ## ✨ Features
 
 ### Core Capabilities
 - **Zero Trust Architecture** - Certificate-based authentication for all connections
+- **Multi-Tenant System** - Complete organization isolation with hierarchical access control
 - **SSH Reverse Tunnels** - Secure connectivity without exposing edge nodes
 - **Web-Based Terminal** - Interactive shell access via browser (xterm.js v5.3.0)
 - **Real-Time Monitoring** - Visual debug panel with categorized event logging
-- **Group-Based Access Control** - Fine-grained permissions per user group
+- **Group-Based Access Control** - Fine-grained permissions per user group with tenant associations
 - **Remote Desktop Access** - Apache Guacamole integration for RDP/VNC
 - **Multi-Protocol Support** - SSH, HTTP, RDP, VNC tunneling
 
@@ -127,6 +136,60 @@
    - User input → WebSocket → SSH → Edge shell
    - Edge output → SSH → WebSocket → Browser terminal
 8. **Session logs** tracked for duration, bytes, commands, errors
+
+---
+
+## 🏢 Multi-Tenant System {#multi-tenant}
+
+Orizon v2.0 includes a complete multi-tenant architecture for managing multiple isolated organizations:
+
+### Hierarchy
+
+```
+Users → Groups → Tenants → Edge Nodes
+```
+
+### Key Features
+
+- **Tenant Isolation**: Each organization (tenant) has completely isolated resources and configurations
+- **Flexible Group Associations**: User groups can be associated with multiple tenants with granular permissions
+- **Shared Infrastructure**: Edge nodes can be shared across multiple tenants with custom configurations
+- **Hierarchical Access Control**:
+  - `SUPERUSER`: Full system access, sees all tenants
+  - `SUPER_ADMIN`: Manages own tenants and subordinate users
+  - `ADMIN`: Manages groups and tenant associations
+  - `USER`: Read-only access to assigned tenants
+
+### Quick Example
+
+```bash
+# Create a new tenant
+curl -X POST http://hub/api/v1/tenants \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "name": "acme-corp",
+    "display_name": "Acme Corporation",
+    "quota": {"max_nodes": 10, "max_users": 50}
+  }'
+
+# Associate group with tenant
+curl -X POST http://hub/api/v1/tenants/{tenant_id}/groups \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "group_id": "...",
+    "permissions": {"can_manage_nodes": true}
+  }'
+
+# Assign edge nodes to tenant
+curl -X POST http://hub/api/v1/tenants/{tenant_id}/nodes \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "node_id": "...",
+    "node_config": {"priority": 1, "max_tunnels": 100}
+  }'
+```
+
+**[Complete Multi-Tenant Documentation →](./docs/MULTI_TENANT_SYSTEM.md)**
 
 ---
 

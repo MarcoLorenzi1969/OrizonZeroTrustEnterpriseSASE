@@ -75,7 +75,7 @@ class Node(Base):
     
     # Tags and metadata
     tags = Column(JSON, default=list)
-    metadata = Column(JSON, default=dict)
+    node_metadata = Column(JSON, default=dict)
     
     # Health metrics
     cpu_usage = Column(Float, default=0.0)
@@ -93,8 +93,12 @@ class Node(Base):
     
     # Relationships
     tunnels = relationship("Tunnel", back_populates="node", cascade="all, delete-orphan")
-    rules = relationship("AccessRule", back_populates="node", cascade="all, delete-orphan")
-    vnc_sessions = relationship("VNCSession", back_populates="node", cascade="all, delete-orphan")
+    rules = relationship(
+        "AccessRule",
+        back_populates="node",
+        foreign_keys="[AccessRule.node_id]",
+        cascade="all, delete-orphan"
+    )
     
     def __repr__(self):
         return f"<Node {self.name} ({self.status})>"

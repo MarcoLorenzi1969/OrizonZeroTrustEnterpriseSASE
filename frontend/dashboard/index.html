@@ -3,284 +3,697 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Orizon v2.1</title>
+    <title>Orizon Dashboard - Management</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
             min-height: 100vh;
             padding: 20px;
         }
 
-        .dashboard-container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
+        .container { max-width: 1600px; margin: 0 auto; }
 
+        /* Header */
         .header {
-            background: white;
-            border-radius: 16px;
-            padding: 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 20px;
+            padding: 30px 40px;
             margin-bottom: 30px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            box-shadow: 0 20px 60px rgba(102, 126, 234, 0.3);
         }
 
         .header h1 {
-            color: #667eea;
-            font-size: 32px;
+            color: white;
+            font-size: 28px;
             font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
 
-        .user-info {
+        .user-badge {
             display: flex;
             align-items: center;
             gap: 15px;
+            background: rgba(255,255,255,0.2);
+            padding: 10px 20px;
+            border-radius: 50px;
+            backdrop-filter: blur(10px);
         }
 
         .user-avatar {
-            width: 50px;
-            height: 50px;
+            width: 40px;
+            height: 40px;
             border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: white;
+            color: #667eea;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 20px;
-            font-weight: 600;
+            font-weight: 700;
         }
 
-        .user-details {
-            text-align: right;
-        }
+        .user-info { color: white; }
+        .user-name { font-weight: 600; font-size: 14px; }
+        .user-role { font-size: 12px; opacity: 0.9; }
 
-        .user-name {
-            font-weight: 600;
-            color: #333;
-            font-size: 16px;
-        }
-
-        .user-role {
-            font-size: 13px;
-            color: #666;
-            text-transform: uppercase;
-        }
-
-        .stats-grid {
+        /* Stats Grid */
+        .stats {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }
 
         .stat-card {
-            background: white;
+            background: #1e293b;
             border-radius: 16px;
-            padding: 25px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-            transition: transform 0.3s ease;
+            padding: 24px;
+            border: 1px solid #334155;
+            transition: all 0.3s;
         }
 
         .stat-card:hover {
-            transform: translateY(-5px);
+            border-color: #667eea;
+            transform: translateY(-4px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
+        }
+
+        .stat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
         }
 
         .stat-icon {
-            width: 50px;
-            height: 50px;
+            width: 48px;
+            height: 48px;
             border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 24px;
-            margin-bottom: 15px;
         }
 
-        .stat-icon.groups { background: #e3f2fd; }
-        .stat-icon.nodes { background: #f3e5f5; }
-        .stat-icon.users { background: #e8f5e9; }
-        .stat-icon.tunnels { background: #fff3e0; }
+        .stat-icon.blue { background: linear-gradient(135deg, #667eea, #764ba2); }
+        .stat-icon.purple { background: linear-gradient(135deg, #f093fb, #f5576c); }
+        .stat-icon.green { background: linear-gradient(135deg, #4facfe, #00f2fe); }
+        .stat-icon.orange { background: linear-gradient(135deg, #fa709a, #fee140); }
 
         .stat-value {
             font-size: 36px;
             font-weight: 700;
-            color: #333;
-            margin-bottom: 5px;
+            color: white;
+            margin-bottom: 4px;
         }
 
         .stat-label {
-            font-size: 14px;
-            color: #666;
+            font-size: 13px;
+            color: #94a3b8;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 1px;
         }
 
-        .data-section {
-            background: white;
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            background: #1e293b;
+            padding: 8px;
             border-radius: 16px;
+            border: 1px solid #334155;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 14px 24px;
+            border: none;
+            background: transparent;
+            color: #94a3b8;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .tab:hover { background: #334155; color: #e2e8f0; }
+        .tab.active {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        /* Content Sections */
+        .content-section {
+            display: none;
+            background: #1e293b;
+            border-radius: 20px;
             padding: 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            border: 1px solid #334155;
+        }
+
+        .content-section.active { display: block; }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
         }
 
         .section-title {
-            font-size: 22px;
+            font-size: 20px;
             font-weight: 700;
-            color: #333;
-            margin-bottom: 20px;
+            color: white;
             display: flex;
             align-items: center;
             gap: 10px;
         }
 
-        .data-table {
-            width: 100%;
-            border-collapse: collapse;
+        /* Buttons */
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
         }
 
-        .data-table th {
-            background: #f5f7fa;
-            padding: 15px;
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #4facfe, #00f2fe);
+            color: white;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+            color: white;
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 12px;
+        }
+
+        /* Data Table */
+        .data-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0 8px;
+        }
+
+        .data-table thead th {
+            padding: 12px 16px;
             text-align: left;
+            font-size: 12px;
             font-weight: 600;
-            color: #666;
-            font-size: 13px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: transparent;
+        }
+
+        .data-table tbody tr {
+            background: #0f172a;
+            border-radius: 12px;
+            transition: all 0.3s;
+        }
+
+        .data-table tbody tr:hover {
+            background: #1e293b;
+            transform: scale(1.01);
+        }
+
+        .data-table tbody td {
+            padding: 16px;
+            border-top: 1px solid #334155;
+            border-bottom: 1px solid #334155;
+        }
+
+        .data-table tbody td:first-child {
+            border-left: 1px solid #334155;
+            border-radius: 12px 0 0 12px;
+        }
+
+        .data-table tbody td:last-child {
+            border-right: 1px solid #334155;
+            border-radius: 0 12px 12px 0;
+        }
+
+        .badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
 
-        .data-table td {
-            padding: 15px;
-            border-bottom: 1px solid #eee;
-            color: #333;
+        .badge-active {
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
         }
 
-        .data-table tr:last-child td {
-            border-bottom: none;
+        .badge-offline {
+            background: rgba(248, 113, 113, 0.2);
+            color: #f87171;
         }
 
-        .status-badge {
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
+        .badge-superuser {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show { display: flex; }
+
+        .modal-content {
+            background: #1e293b;
+            border-radius: 24px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+            border: 1px solid #334155;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        .modal-header {
+            padding: 24px 30px;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .close {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .close:hover {
+            background: #334155;
+            color: white;
+        }
+
+        .modal-body { padding: 30px; }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
             font-weight: 600;
-            text-transform: uppercase;
+            color: #e2e8f0;
+            font-size: 14px;
         }
 
-        .status-active {
-            background: #e8f5e9;
-            color: #2e7d32;
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 12px 16px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            color: white;
+            font-size: 14px;
+            transition: all 0.3s;
         }
 
-        .status-offline {
-            background: #ffebee;
-            color: #c62828;
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .modal-footer {
+            padding: 20px 30px;
+            border-top: 1px solid #334155;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
         }
 
         .loading {
             text-align: center;
-            padding: 40px;
-            color: #666;
-        }
-
-        .error {
-            background: #ffebee;
-            color: #c62828;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-
-        .btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .btn-logout {
-            background: #f44336;
-            color: white;
-        }
-
-        .btn-logout:hover {
-            background: #d32f2f;
+            padding: 60px;
+            color: #94a3b8;
+            font-size: 14px;
         }
 
         .empty-state {
             text-align: center;
-            padding: 40px;
-            color: #999;
+            padding: 60px;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-state-text {
+            color: #94a3b8;
+            font-size: 14px;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* Messages */
+        .message {
+            padding: 16px 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            display: none;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .message.show { display: flex; }
+
+        .message-error {
+            background: rgba(248, 113, 113, 0.2);
+            border: 1px solid #f87171;
+            color: #fecaca;
+        }
+
+        .message-success {
+            background: rgba(74, 222, 128, 0.2);
+            border: 1px solid #4ade80;
+            color: #86efac;
         }
     </style>
 </head>
 <body>
-    <div class="dashboard-container">
+    <div class="container">
         <!-- Header -->
         <div class="header">
-            <h1>🔒 Orizon Zero Trust Dashboard</h1>
-            <div class="user-info">
-                <div class="user-details" id="userDetails">
+            <h1>🔒 Orizon Zero Trust</h1>
+            <div class="user-badge">
+                <div class="user-avatar" id="userAvatar">M</div>
+                <div class="user-info">
                     <div class="user-name" id="userName">Loading...</div>
                     <div class="user-role" id="userRole">...</div>
                 </div>
-                <div class="user-avatar" id="userAvatar">?</div>
-                <button class="btn btn-logout" onclick="logout()">Logout</button>
+                <button class="btn btn-small btn-danger" onclick="logout()">Logout</button>
             </div>
         </div>
 
-        <!-- Error Message -->
-        <div id="errorMsg" class="error" style="display: none;"></div>
+        <!-- Messages -->
+        <div id="errorMsg" class="message message-error"></div>
+        <div id="successMsg" class="message message-success"></div>
 
-        <!-- Stats Grid -->
-        <div class="stats-grid">
+        <!-- Stats -->
+        <div class="stats">
             <div class="stat-card">
-                <div class="stat-icon groups">👥</div>
-                <div class="stat-value" id="groupsCount">-</div>
-                <div class="stat-label">Groups</div>
+                <div class="stat-header">
+                    <div>
+                        <div class="stat-value" id="groupsCount">-</div>
+                        <div class="stat-label">Groups</div>
+                    </div>
+                    <div class="stat-icon blue">👥</div>
+                </div>
             </div>
             <div class="stat-card">
-                <div class="stat-icon nodes">🖥️</div>
-                <div class="stat-value" id="nodesCount">-</div>
-                <div class="stat-label">Nodes</div>
+                <div class="stat-header">
+                    <div>
+                        <div class="stat-value" id="nodesCount">-</div>
+                        <div class="stat-label">Nodes</div>
+                    </div>
+                    <div class="stat-icon purple">🖥️</div>
+                </div>
             </div>
             <div class="stat-card">
-                <div class="stat-icon users">👤</div>
-                <div class="stat-value" id="usersCount">1</div>
-                <div class="stat-label">Users</div>
+                <div class="stat-header">
+                    <div>
+                        <div class="stat-value" id="usersCount">-</div>
+                        <div class="stat-label">Users</div>
+                    </div>
+                    <div class="stat-icon green">👤</div>
+                </div>
             </div>
             <div class="stat-card">
-                <div class="stat-icon tunnels">🔗</div>
-                <div class="stat-value" id="tunnelsCount">0</div>
-                <div class="stat-label">Tunnels</div>
+                <div class="stat-header">
+                    <div>
+                        <div class="stat-value" id="tunnelsCount">0</div>
+                        <div class="stat-label">Tunnels</div>
+                    </div>
+                    <div class="stat-icon orange">🔗</div>
+                </div>
             </div>
         </div>
 
-        <!-- Groups Section -->
-        <div class="data-section" id="groupsSection">
-            <h2 class="section-title">📁 Groups</h2>
-            <div id="groupsContent" class="loading">Loading groups...</div>
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('groups')">
+                <span>👥</span> Groups
+            </button>
+            <button class="tab" onclick="switchTab('nodes')">
+                <span>🖥️</span> Nodes
+            </button>
+            <button class="tab" onclick="switchTab('users')">
+                <span>👤</span> Users
+            </button>
         </div>
 
-        <!-- Nodes Section -->
-        <div class="data-section" id="nodesSection">
-            <h2 class="section-title">🖥️ Nodes</h2>
-            <div id="nodesContent" class="loading">Loading nodes...</div>
+        <!-- Groups Content -->
+        <div id="groupsContent" class="content-section active">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span>👥</span> Groups Management
+                </h2>
+                <button class="btn btn-primary" onclick="showCreateGroupModal()">
+                    <span>+</span> New Group
+                </button>
+            </div>
+            <div id="groupsTable" class="loading">Loading groups...</div>
+        </div>
+
+        <!-- Nodes Content -->
+        <div id="nodesContent" class="content-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span>🖥️</span> Nodes Management
+                </h2>
+                <button class="btn btn-primary" onclick="showCreateNodeModal()">
+                    <span>+</span> New Node
+                </button>
+            </div>
+            <div id="nodesTable" class="loading">Loading nodes...</div>
+        </div>
+
+        <!-- Users Content -->
+        <div id="usersContent" class="content-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span>👤</span> Users Management
+                </h2>
+                <button class="btn btn-primary" onclick="showCreateUserModal()">
+                    <span>+</span> New User
+                </button>
+            </div>
+            <div id="usersTable" class="loading">Loading users...</div>
+        </div>
+    </div>
+
+    <!-- Group Modal -->
+    <div id="groupModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="groupModalTitle">
+                    <span>👥</span> <span id="groupModalTitleText">New Group</span>
+                </h3>
+                <button class="close" onclick="closeModal('groupModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="groupForm" onsubmit="saveGroup(event)">
+                    <input type="hidden" id="groupId">
+                    <div class="form-group">
+                        <label class="form-label">Group Name *</label>
+                        <input type="text" id="groupName" class="form-input" required placeholder="e.g., Development Team">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <textarea id="groupDescription" class="form-textarea" placeholder="Describe the purpose of this group..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" style="background: #334155; color: white;" onclick="closeModal('groupModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="document.getElementById('groupForm').requestSubmit()">
+                    <span>💾</span> Save Group
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Node Modal -->
+    <div id="nodeModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="nodeModalTitle">
+                    <span>🖥️</span> <span id="nodeModalTitleText">New Node</span>
+                </h3>
+                <button class="close" onclick="closeModal('nodeModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="nodeForm" onsubmit="saveNode(event)">
+                    <input type="hidden" id="nodeId">
+                    <div class="form-group">
+                        <label class="form-label">Node Name *</label>
+                        <input type="text" id="nodeName" class="form-input" required placeholder="e.g., Edge-Server-01">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Hostname *</label>
+                        <input type="text" id="nodeHostname" class="form-input" required placeholder="e.g., edge-01.example.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Node Type *</label>
+                        <select id="nodeType" class="form-select" required>
+                            <option value="linux">Linux</option>
+                            <option value="windows">Windows</option>
+                            <option value="macos">MacOS</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Public IP</label>
+                        <input type="text" id="nodePublicIp" class="form-input" placeholder="e.g., 192.168.1.100">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" style="background: #334155; color: white;" onclick="closeModal('nodeModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="document.getElementById('nodeForm').requestSubmit()">
+                    <span>💾</span> Save Node
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Modal -->
+    <div id="userModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="userModalTitle">
+                    <span>👤</span> <span id="userModalTitleText">New User</span>
+                </h3>
+                <button class="close" onclick="closeModal('userModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="userForm" onsubmit="saveUser(event)">
+                    <input type="hidden" id="userId">
+                    <div class="form-group">
+                        <label class="form-label">Email *</label>
+                        <input type="email" id="userEmail" class="form-input" required placeholder="user@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Username *</label>
+                        <input type="text" id="userUsername" class="form-input" required placeholder="username">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Full Name *</label>
+                        <input type="text" id="userFullName" class="form-input" required placeholder="John Doe">
+                    </div>
+                    <div class="form-group" id="passwordGroup">
+                        <label class="form-label">Password *</label>
+                        <input type="password" id="userPassword" class="form-input" placeholder="••••••••">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Role *</label>
+                        <select id="userRole" class="form-select" required>
+                            <option value="user">User</option>
+                            <option value="admin">Admin</option>
+                            <option value="superuser">Superuser</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" style="background: #334155; color: white;" onclick="closeModal('userModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="document.getElementById('userForm').requestSubmit()">
+                    <span>💾</span> Save User
+                </button>
+            </div>
         </div>
     </div>
 
     <script>
         const API_BASE = '/api/v1';
         let accessToken = null;
+        let currentData = { groups: [], nodes: [], users: [] };
 
-        // Get token from localStorage
+        // Get token
         function getToken() {
             accessToken = localStorage.getItem('orizon_token');
             if (!accessToken) {
@@ -309,137 +722,345 @@
                 }
 
                 if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    const error = await response.json().catch(() => ({}));
+                    throw new Error(error.detail || `HTTP ${response.status}`);
                 }
 
                 return await response.json();
             } catch (error) {
                 console.error('API Error:', error);
-                showError(`API Error: ${error.message}`);
-                return null;
+                showError(error.message);
+                throw error;
             }
         }
 
-        // Show error message
+        // Show messages
         function showError(message) {
-            const errorMsg = document.getElementById('errorMsg');
-            errorMsg.textContent = message;
-            errorMsg.style.display = 'block';
-            setTimeout(() => {
-                errorMsg.style.display = 'none';
-            }, 5000);
+            const el = document.getElementById('errorMsg');
+            el.textContent = '❌ ' + message;
+            el.classList.add('show');
+            setTimeout(() => el.classList.remove('show'), 5000);
         }
 
-        // Load user info
-        async function loadUserInfo() {
-            console.log("[DEBUG] loadUserInfo chiamata");
-            const data = await apiCall('/auth/me');
-            console.log("[DEBUG] User data ricevuto:", data);
-            if (data) {
-                document.getElementById('userName').textContent = data.full_name || data.username;
-                document.getElementById('userRole').textContent = data.role;
-                document.getElementById('userAvatar').textContent = (data.full_name || data.username).charAt(0).toUpperCase();
+        function showSuccess(message) {
+            const el = document.getElementById('successMsg');
+            el.textContent = '✅ ' + message;
+            el.classList.add('show');
+            setTimeout(() => el.classList.remove('show'), 3000);
+        }
+
+        // Tab switching
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+            event.target.closest('.tab').classList.add('active');
+            document.getElementById(tab + 'Content').classList.add('active');
+        }
+
+        // Modal functions
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
+        }
+
+        // GROUPS MANAGEMENT
+        async function loadGroups() {
+            const data = await apiCall('/groups');
+            if (data && data.groups) {
+                currentData.groups = data.groups;
+                document.getElementById('groupsCount').textContent = data.groups.length;
+                renderGroupsTable(data.groups);
             }
         }
 
-        // Load groups
-        async function loadGroups() {
-            console.log("[DEBUG] loadGroups chiamata");
-            const data = await apiCall('/groups');
-            console.log("[DEBUG] Groups data ricevuto:", data);
-            const content = document.getElementById('groupsContent');
-
-            if (!data || !data.groups || data.groups.length === 0) {
-                content.innerHTML = '<div class="empty-state">No groups found</div>';
-                document.getElementById('groupsCount').textContent = '0';
+        function renderGroupsTable(groups) {
+            const container = document.getElementById('groupsTable');
+            if (groups.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">👥</div><div class="empty-state-text">No groups yet. Create your first group!</div></div>';
                 return;
             }
 
-            document.getElementById('groupsCount').textContent = data.groups.length;
-
             let html = '<table class="data-table"><thead><tr>';
-            html += '<th>Name</th><th>Description</th><th>Members</th><th>Nodes</th><th>Status</th>';
+            html += '<th>Name</th><th>Description</th><th>Members</th><th>Nodes</th><th>Status</th><th>Actions</th>';
             html += '</tr></thead><tbody>';
 
-            data.groups.forEach(group => {
+            groups.forEach(group => {
                 html += '<tr>';
                 html += `<td><strong>${group.name}</strong></td>`;
                 html += `<td>${group.description || '-'}</td>`;
                 html += `<td>${group.member_count || 0}</td>`;
                 html += `<td>${group.node_count || 0}</td>`;
-                html += `<td><span class="status-badge status-active">Active</span></td>`;
-                html += '</tr>';
+                html += `<td><span class="badge badge-active">Active</span></td>`;
+                html += `<td><div class="action-buttons">`;
+                html += `<button class="btn btn-small btn-primary" onclick='editGroup(${JSON.stringify(group)})'>✏️ Edit</button>`;
+                html += `<button class="btn btn-small btn-danger" onclick="deleteGroup('${group.id}', '${group.name}')">🗑️ Delete</button>`;
+                html += `</div></td></tr>`;
             });
 
             html += '</tbody></table>';
-            content.innerHTML = html;
+            container.innerHTML = html;
         }
 
-        // Load nodes
-        async function loadNodes() {
-            console.log("[DEBUG] loadNodes chiamata");
-            const data = await apiCall('/nodes');
-            console.log("[DEBUG] Nodes data ricevuto:", data);
-            const content = document.getElementById('nodesContent');
+        function showCreateGroupModal() {
+            document.getElementById('groupModalTitleText').textContent = 'New Group';
+            document.getElementById('groupForm').reset();
+            document.getElementById('groupId').value = '';
+            document.getElementById('groupModal').classList.add('show');
+        }
 
-            if (!data || !data.nodes || data.nodes.length === 0) {
-                content.innerHTML = '<div class="empty-state">No nodes found</div>';
-                document.getElementById('nodesCount').textContent = '0';
+        function editGroup(group) {
+            document.getElementById('groupModalTitleText').textContent = 'Edit Group';
+            document.getElementById('groupId').value = group.id;
+            document.getElementById('groupName').value = group.name;
+            document.getElementById('groupDescription').value = group.description || '';
+            document.getElementById('groupModal').classList.add('show');
+        }
+
+        async function saveGroup(event) {
+            event.preventDefault();
+            const id = document.getElementById('groupId').value;
+            const data = {
+                name: document.getElementById('groupName').value,
+                description: document.getElementById('groupDescription').value,
+                settings: {}
+            };
+
+            try {
+                if (id) {
+                    await apiCall(`/groups/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+                    showSuccess('Group updated successfully!');
+                } else {
+                    await apiCall('/groups', { method: 'POST', body: JSON.stringify(data) });
+                    showSuccess('Group created successfully!');
+                }
+                closeModal('groupModal');
+                loadGroups();
+            } catch (error) {
+                // Error already shown by apiCall
+            }
+        }
+
+        async function deleteGroup(id, name) {
+            if (!confirm(`Delete group "${name}"?`)) return;
+            try {
+                await apiCall(`/groups/${id}`, { method: 'DELETE' });
+                showSuccess('Group deleted successfully!');
+                loadGroups();
+            } catch (error) {}
+        }
+
+        // NODES MANAGEMENT
+        async function loadNodes() {
+            const data = await apiCall('/nodes');
+            if (data && data.nodes) {
+                currentData.nodes = data.nodes;
+                document.getElementById('nodesCount').textContent = data.nodes.length;
+                renderNodesTable(data.nodes);
+            }
+        }
+
+        function renderNodesTable(nodes) {
+            const container = document.getElementById('nodesTable');
+            if (nodes.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🖥️</div><div class="empty-state-text">No nodes yet. Add your first node!</div></div>';
                 return;
             }
 
-            document.getElementById('nodesCount').textContent = data.nodes.length;
-
             let html = '<table class="data-table"><thead><tr>';
-            html += '<th>Name</th><th>Hostname</th><th>Type</th><th>IP</th><th>Status</th>';
+            html += '<th>Name</th><th>Hostname</th><th>Type</th><th>IP</th><th>Status</th><th>Actions</th>';
             html += '</tr></thead><tbody>';
 
-            data.nodes.forEach(node => {
-                const statusClass = node.status === 'online' ? 'status-active' : 'status-offline';
+            nodes.forEach(node => {
+                const statusClass = node.status === 'online' ? 'badge-active' : 'badge-offline';
                 html += '<tr>';
                 html += `<td><strong>${node.name}</strong></td>`;
                 html += `<td>${node.hostname || '-'}</td>`;
                 html += `<td>${node.node_type}</td>`;
                 html += `<td>${node.public_ip || node.private_ip || '-'}</td>`;
-                html += `<td><span class="status-badge ${statusClass}">${node.status}</span></td>`;
-                html += '</tr>';
+                html += `<td><span class="badge ${statusClass}">${node.status}</span></td>`;
+                html += `<td><div class="action-buttons">`;
+                html += `<button class="btn btn-small btn-primary" onclick='editNode(${JSON.stringify(node)})'>✏️ Edit</button>`;
+                html += `<button class="btn btn-small btn-danger" onclick="deleteNode('${node.id}', '${node.name}')">🗑️ Delete</button>`;
+                html += `</div></td></tr>`;
             });
 
             html += '</tbody></table>';
-            content.innerHTML = html;
+            container.innerHTML = html;
         }
 
-        // Logout
+        function showCreateNodeModal() {
+            document.getElementById('nodeModalTitleText').textContent = 'New Node';
+            document.getElementById('nodeForm').reset();
+            document.getElementById('nodeId').value = '';
+            document.getElementById('nodeModal').classList.add('show');
+        }
+
+        function editNode(node) {
+            document.getElementById('nodeModalTitleText').textContent = 'Edit Node';
+            document.getElementById('nodeId').value = node.id;
+            document.getElementById('nodeName').value = node.name;
+            document.getElementById('nodeHostname').value = node.hostname;
+            document.getElementById('nodeType').value = node.node_type;
+            document.getElementById('nodePublicIp').value = node.public_ip || '';
+            document.getElementById('nodeModal').classList.add('show');
+        }
+
+        async function saveNode(event) {
+            event.preventDefault();
+            const id = document.getElementById('nodeId').value;
+            const data = {
+                name: document.getElementById('nodeName').value,
+                hostname: document.getElementById('nodeHostname').value,
+                node_type: document.getElementById('nodeType').value,
+                public_ip: document.getElementById('nodePublicIp').value || null
+            };
+
+            try {
+                if (id) {
+                    await apiCall(`/nodes/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+                    showSuccess('Node updated successfully!');
+                } else {
+                    await apiCall('/nodes', { method: 'POST', body: JSON.stringify(data) });
+                    showSuccess('Node created successfully!');
+                }
+                closeModal('nodeModal');
+                loadNodes();
+            } catch (error) {}
+        }
+
+        async function deleteNode(id, name) {
+            if (!confirm(`Delete node "${name}"?`)) return;
+            try {
+                await apiCall(`/nodes/${id}`, { method: 'DELETE' });
+                showSuccess('Node deleted successfully!');
+                loadNodes();
+            } catch (error) {}
+        }
+
+        // USERS MANAGEMENT
+        async function loadUsers() {
+            const data = await apiCall('/users');
+            if (data && data.users) {
+                currentData.users = data.users;
+                document.getElementById('usersCount').textContent = data.users.length;
+                renderUsersTable(data.users);
+            }
+        }
+
+        function renderUsersTable(users) {
+            const container = document.getElementById('usersTable');
+            if (users.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">👤</div><div class="empty-state-text">No users yet. Create your first user!</div></div>';
+                return;
+            }
+
+            let html = '<table class="data-table"><thead><tr>';
+            html += '<th>Name</th><th>Email</th><th>Username</th><th>Role</th><th>Status</th><th>Actions</th>';
+            html += '</tr></thead><tbody>';
+
+            users.forEach(user => {
+                html += '<tr>';
+                html += `<td><strong>${user.full_name}</strong></td>`;
+                html += `<td>${user.email}</td>`;
+                html += `<td>${user.username}</td>`;
+                html += `<td><span class="badge badge-${user.role}">${user.role.toUpperCase()}</span></td>`;
+                html += `<td><span class="badge badge-active">Active</span></td>`;
+                html += `<td><div class="action-buttons">`;
+                html += `<button class="btn btn-small btn-primary" onclick='editUser(${JSON.stringify(user)})'>✏️ Edit</button>`;
+                html += `<button class="btn btn-small btn-danger" onclick="deleteUser('${user.id}', '${user.username}')">🗑️ Delete</button>`;
+                html += `</div></td></tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function showCreateUserModal() {
+            document.getElementById('userModalTitleText').textContent = 'New User';
+            document.getElementById('userForm').reset();
+            document.getElementById('userId').value = '';
+            document.getElementById('passwordGroup').style.display = 'block';
+            document.getElementById('userPassword').required = true;
+            document.getElementById('userModal').classList.add('show');
+        }
+
+        function editUser(user) {
+            document.getElementById('userModalTitleText').textContent = 'Edit User';
+            document.getElementById('userId').value = user.id;
+            document.getElementById('userEmail').value = user.email;
+            document.getElementById('userUsername').value = user.username;
+            document.getElementById('userFullName').value = user.full_name;
+            document.getElementById('userRole').value = user.role;
+            document.getElementById('passwordGroup').style.display = 'none';
+            document.getElementById('userPassword').required = false;
+            document.getElementById('userModal').classList.add('show');
+        }
+
+        async function saveUser(event) {
+            event.preventDefault();
+            const id = document.getElementById('userId').value;
+            const data = {
+                email: document.getElementById('userEmail').value,
+                username: document.getElementById('userUsername').value,
+                full_name: document.getElementById('userFullName').value,
+                role: document.getElementById('userRole').value
+            };
+
+            if (!id) {
+                data.password = document.getElementById('userPassword').value;
+            }
+
+            try {
+                if (id) {
+                    await apiCall(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+                    showSuccess('User updated successfully!');
+                } else {
+                    await apiCall('/users', { method: 'POST', body: JSON.stringify(data) });
+                    showSuccess('User created successfully!');
+                }
+                closeModal('userModal');
+                loadUsers();
+            } catch (error) {}
+        }
+
+        async function deleteUser(id, username) {
+            if (!confirm(`Delete user "${username}"?`)) return;
+            try {
+                await apiCall(`/users/${id}`, { method: 'DELETE' });
+                showSuccess('User deleted successfully!');
+                loadUsers();
+            } catch (error) {}
+        }
+
+        // User info
+        async function loadUserInfo() {
+            const data = await apiCall('/auth/me');
+            if (data) {
+                document.getElementById('userName').textContent = data.full_name || data.username;
+                document.getElementById('userRole').textContent = data.role.toUpperCase();
+                document.getElementById('userAvatar').textContent = (data.full_name || data.username).charAt(0).toUpperCase();
+            }
+        }
+
         function logout() {
             localStorage.removeItem('orizon_token');
             window.location.href = '/auth/login.html';
         }
 
-        // Initialize dashboard
+        // Initialize
         async function init() {
-            console.log("[DEBUG] Init dashboard chiamata");
             if (!getToken()) return;
-
-            try {
-                await loadUserInfo();
-                await Promise.all([
-                    loadGroups(),
-                    loadNodes()
-                ]);
-            } catch (error) {
-                console.error('Dashboard initialization error:', error);
-                showError('Failed to load dashboard data');
-            }
+            await loadUserInfo();
+            await Promise.all([loadGroups(), loadNodes(), loadUsers()]);
         }
+
+        init();
 
         // Auto-refresh every 30 seconds
         setInterval(() => {
             loadGroups();
             loadNodes();
+            loadUsers();
         }, 30000);
-
-        // Start
-        init();
     </script>
 </body>
 </html>

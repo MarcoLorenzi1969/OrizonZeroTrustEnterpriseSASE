@@ -14,7 +14,7 @@ from sqlalchemy import select, delete, and_, or_
 from loguru import logger
 
 from app.models.access_rule import AccessRule, RuleAction, RuleProtocol
-from app.schemas.access_rule import ACLRuleCreate, ACLRuleResponse
+from app.schemas.access_rule import AccessRuleCreate, AccessRuleResponse
 from app.websocket.manager import ws_manager
 from app.core.mongodb import get_mongodb
 
@@ -48,62 +48,63 @@ class ACLService:
         action: str,
         priority: int,
         created_by: str,
-        description: Optional[str] = None
+        description: Optional[str] = None,
+        node_id: Optional[str] = None
     ) -> Optional[AccessRule]:
         """
         Create new ACL rule
-        
+
         Args:
             db: Database session
             source_node: Source node ID or "*" for any
             dest_node: Destination node ID or "*" for any
-            protocol: "tcp", "udp", "ssh", "https", or "any"
+            protocol: "tcp", "udp", "icmp", "all"
             port: Port number or 0 for any
             action: "allow" or "deny"
             priority: 1-100 (1 = highest priority)
             created_by: User ID who created the rule
             description: Optional rule description
-            
+            node_id: Node that owns this rule (defaults to source_node)
+
         Returns:
             Created AccessRule or None on failure
         """
         try:
             # Validate inputs
-            if priority < 1 or priority > 100:
-                logger.error(f"❌ Invalid priority {priority}, must be 1-100")
+            if priority < 1 or priority > 1000:
+                logger.error(f"❌ Invalid priority {priority}, must be 1-1000")
                 return None
-            
+
             if action not in ["allow", "deny"]:
                 logger.error(f"❌ Invalid action {action}")
                 return None
-            
-            # Check for conflicting rules with same priority
-            conflict = await self._check_rule_conflict(
-                db, source_node, dest_node, protocol, port, priority
-            )
-            
-            if conflict:
-                logger.warning(
-                    f"⚠️ Rule conflict detected at priority {priority}, "
-                    "rule will be added but may not behave as expected"
-                )
-            
+
+            # Use source_node as node_id if not provided
+            if not node_id:
+                node_id = source_node if source_node != "*" else dest_node
+
             # Create rule
             rule_id = str(uuid.uuid4())
+
+            # Generate name if not provided
+            name = f"ACL-{source_node}-{dest_node}-{protocol}-{port}"
+
             rule = AccessRule(
                 id=rule_id,
-                source_node_id=source_node,
-                dest_node_id=dest_node,
-                protocol=RuleProtocol(protocol.upper()) if protocol != "any" else None,
-                port=port if port > 0 else None,
-                action=RuleAction(action.upper()),
+                name=name,
+                source_node_id=source_node if source_node != "*" else None,
+                destination_node_id=dest_node if dest_node != "*" else None,
+                protocol=RuleProtocol(protocol.lower()) if protocol.lower() in ["tcp", "udp", "icmp"] else RuleProtocol.ALL,
+                destination_port=port if port > 0 else None,
+                action=RuleAction(action.lower()),
                 priority=priority,
-                description=description,
-                created_by=created_by,
+                description=description or name,
+                node_id=node_id,
+                created_by_id=created_by,
                 created_at=datetime.utcnow(),
-                is_active=True
+                is_enabled=True
             )
-            
+
             db.add(rule)
             await db.commit()
             await db.refresh(rule)
@@ -153,7 +154,7 @@ class ACLService:
                 return False
             
             source_node = rule.source_node_id
-            dest_node = rule.dest_node_id
+            dest_node = rule.destination_node_id
             
             # Delete rule
             stmt = delete(AccessRule).where(AccessRule.id == rule_id)
@@ -194,11 +195,11 @@ class ACLService:
                 and_(
                     or_(
                         AccessRule.source_node_id == node_id,
-                        AccessRule.dest_node_id == node_id,
+                        AccessRule.destination_node_id == node_id,
                         AccessRule.source_node_id == "*",
-                        AccessRule.dest_node_id == "*"
+                        AccessRule.destination_node_id == "*"
                     ),
-                    AccessRule.is_active == True
+                    AccessRule.is_enabled == True
                 )
             ).order_by(AccessRule.priority.asc())
             
@@ -299,7 +300,7 @@ class ACLService:
         try:
             # Get all active rules sorted by priority
             stmt = select(AccessRule).where(
-                AccessRule.is_active == True
+                AccessRule.is_enabled == True
             ).order_by(AccessRule.priority.asc())
             
             result = await db.execute(stmt)
@@ -360,7 +361,7 @@ class ACLService:
         """Get all ACL rules with pagination"""
         try:
             stmt = select(AccessRule).where(
-                AccessRule.is_active == True
+                AccessRule.is_enabled == True
             ).order_by(
                 AccessRule.priority.asc()
             ).offset(skip).limit(limit)
@@ -386,13 +387,13 @@ class ACLService:
             if not rule:
                 return False
             
-            rule.is_active = True
+            rule.is_enabled = True
             rule.updated_at = datetime.utcnow()
             await db.commit()
             
             # Re-apply rules to affected nodes
             await self.apply_rules_to_node(db, rule.source_node_id)
-            await self.apply_rules_to_node(db, rule.dest_node_id)
+            await self.apply_rules_to_node(db, rule.destination_node_id)
             
             logger.info(f"✅ ACL rule enabled: {rule_id}")
             return True
@@ -415,13 +416,13 @@ class ACLService:
             if not rule:
                 return False
             
-            rule.is_active = False
+            rule.is_enabled = False
             rule.updated_at = datetime.utcnow()
             await db.commit()
             
             # Re-apply rules to affected nodes
             await self.apply_rules_to_node(db, rule.source_node_id)
-            await self.apply_rules_to_node(db, rule.dest_node_id)
+            await self.apply_rules_to_node(db, rule.destination_node_id)
             
             logger.info(f"⏸️ ACL rule disabled: {rule_id}")
             return True
@@ -444,7 +445,7 @@ class ACLService:
             return False
         
         # Check destination
-        if rule.dest_node_id != "*" and rule.dest_node_id != dest:
+        if rule.destination_node_id != "*" and rule.destination_node_id != dest:
             return False
         
         # Check protocol
@@ -452,7 +453,7 @@ class ACLService:
             return False
         
         # Check port
-        if rule.port and rule.port != port:
+        if rule.destination_port and rule.destination_port != port:
             return False
         
         return True
@@ -481,9 +482,9 @@ class ACLService:
             formatted_rules.append({
                 "rule_id": rule.id,
                 "source": rule.source_node_id,
-                "dest": rule.dest_node_id,
+                "dest": rule.destination_node_id,
                 "protocol": rule.protocol.value.lower() if rule.protocol else "any",
-                "port": rule.port if rule.port else 0,
+                "port": rule.destination_port if rule.destination_port else 0,
                 "action": rule.action.value.lower(),
                 "priority": rule.priority,
                 "description": rule.description
@@ -504,9 +505,9 @@ class ACLService:
         stmt = select(AccessRule).where(
             and_(
                 AccessRule.source_node_id == source,
-                AccessRule.dest_node_id == dest,
+                AccessRule.destination_node_id == dest,
                 AccessRule.priority == priority,
-                AccessRule.is_active == True
+                AccessRule.is_enabled == True
             )
         )
         

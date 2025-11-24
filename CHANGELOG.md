@@ -7,6 +7,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.1] - 2025-11-24
+
+### 🏢 Multi-Tenant System
+
+This release introduces a complete multi-tenant architecture for managing isolated organizations with hierarchical access control.
+
+### ✨ Added
+
+#### Multi-Tenant Core
+- **Tenant Management**
+  - Complete CRUD operations for tenants
+  - Automatic slug generation for URL-friendly identifiers
+  - JSONB fields for flexible company info, settings, and quota configurations
+  - Soft delete with is_active flags
+  - Audit trail tracking (created_by, timestamps)
+
+#### Group-Tenant Associations
+- **Many-to-Many Relationships**
+  - Groups can be associated with multiple tenants
+  - Granular permissions per group-tenant association
+  - Permission types: can_manage_nodes, can_view_metrics, can_modify_settings
+  - Active/inactive association management
+
+#### Tenant-Node Associations
+- **Shared Infrastructure**
+  - Tenants can have multiple edge nodes assigned
+  - Nodes can be shared across multiple tenants
+  - Custom configuration per tenant-node (priority, max_tunnels, allowed_ports, custom_routing)
+  - JSONB node_config for flexible settings
+
+#### Hierarchical Access Control
+- **Visibility Service** (`node_visibility_service.py`)
+  - SUPERUSER: Full system access, sees all tenants
+  - SUPER_ADMIN: Sees own tenants + subordinates' tenants
+  - ADMIN: Sees tenants accessible through groups
+  - USER: Read-only access to assigned tenants
+- **Permission Service** (`permission_service.py`)
+  - Granular permission checks for tenant/node operations
+  - User-tenant permission aggregation
+  - Node management authorization
+
+#### API Endpoints
+- **Tenant Management** (`/api/v1/tenants`)
+  - POST /tenants - Create tenant (SUPER_ADMIN+)
+  - GET /tenants - List tenants (hierarchical visibility)
+  - GET /tenants/{id} - Get tenant details
+  - PUT /tenants/{id} - Update tenant
+  - DELETE /tenants/{id} - Soft delete tenant
+- **Group-Tenant** (`/api/v1/tenants/{id}/groups`)
+  - POST /tenants/{id}/groups - Associate group
+  - GET /tenants/{id}/groups - List associated groups
+  - DELETE /tenants/{id}/groups/{group_id} - Remove association
+- **Tenant-Node** (`/api/v1/tenants/{id}/nodes`)
+  - POST /tenants/{id}/nodes - Associate node
+  - GET /tenants/{id}/nodes - List associated nodes
+  - DELETE /tenants/{id}/nodes/{node_id} - Remove association
+- **Debug Endpoints**
+  - GET /debug/groups-tenants-nodes - Complete system hierarchy
+  - GET /debug/tenant-hierarchy/{id} - Specific tenant hierarchy
+
+#### Database Schema
+- **New Tables**
+  - `tenants` - Organization/customer isolation
+  - `group_tenants` - Many-to-many groups ↔ tenants
+  - `tenant_nodes` - Many-to-many tenants ↔ nodes
+- **Indexes**
+  - Performance indexes on name, slug, is_active
+  - Foreign key indexes for associations
+  - Unique constraints on group_id+tenant_id and tenant_id+node_id
+
+#### Services
+- `tenant_service.py` - Tenant CRUD and business logic
+- `hierarchy_service.py` - Hierarchical data management
+- `node_visibility_service.py` - Node access control
+- `permission_service.py` - Granular permission checks
+- `sso_service.py` - Enhanced SSO with session management
+
+#### Middleware & Utils
+- `audit_middleware.py` - Request/response audit logging
+- `debug_middleware.py` - Debug event tracking
+- `audit_logger.py` - Structured audit logging utility
+
+### 📚 Documentation
+- **Complete Multi-Tenant Guide** (`docs/MULTI_TENANT_SYSTEM.md`)
+  - Architecture overview with diagrams
+  - Database schema documentation
+  - API endpoint reference with examples
+  - Access control explanation
+  - Usage scenarios and testing guides
+
+### 🔧 Fixed
+- Group creation authentication issues
+- Logout endpoint implementation
+- Database column name mismatches (role vs role_in_group)
+- Schema validation for tenant_id in request paths
+- Service return type mismatches for association objects
+
+---
+
 ## [2.0.0] - 2025-11-15
 
 ### 🎉 Major Release: Web Terminal Integration

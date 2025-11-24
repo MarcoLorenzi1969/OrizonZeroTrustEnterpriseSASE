@@ -78,11 +78,11 @@ class AccessRule(Base):
     
     # Metadata
     tags = Column(JSON, default=list)
-    metadata = Column(JSON, default=dict)
+    rule_metadata = Column(JSON, default=dict)
     
     # Ownership
     node_id = Column(String(36), ForeignKey("nodes.id"), nullable=False)
-    node = relationship("Node", back_populates="rules")
+    node = relationship("Node", back_populates="rules", foreign_keys=[node_id])
     
     created_by_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     

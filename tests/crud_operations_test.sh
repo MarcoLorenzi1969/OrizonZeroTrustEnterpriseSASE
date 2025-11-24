@@ -227,10 +227,10 @@ echo ""
 
 # Test 13: Create User
 echo "Test 13: Create new user..."
-CREATE_USER=$(curl -s -X POST "$BASE_URL/users" \
+CREATE_USER=$(curl -L -s -X POST "$BASE_URL/users" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"email":"test-crud-'$(date +%s)'@example.com","username":"testcrud'$(date +%s)'","password":"TestPassword123!","full_name":"Test CRUD User","role":"USER"}')
+  -d '{"email":"test-crud-'$(date +%s)'@example.com","username":"testcrud'$(date +%s)'","password":"TestPassword123!","full_name":"Test CRUD User","role":"user"}')
 
 USER_ID=$(echo "$CREATE_USER" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
 
@@ -243,7 +243,7 @@ fi
 
 # Test 14: Read User
 echo "Test 14: Read created user..."
-READ_USER=$(curl -s -w "\n%{http_code}" "$BASE_URL/users/$USER_ID" \
+READ_USER=$(curl -L -s -w "\n%{http_code}" "$BASE_URL/users/$USER_ID" \
   -H "Authorization: Bearer $TOKEN")
 
 HTTP_CODE=$(echo "$READ_USER" | tail -n1)
@@ -255,10 +255,10 @@ fi
 
 # Test 15: Update User
 echo "Test 15: Update user..."
-UPDATE_USER=$(curl -s -w "\n%{http_code}" -X PUT "$BASE_URL/users/$USER_ID" \
+UPDATE_USER=$(curl -L -s -w "\n%{http_code}" -X PUT "$BASE_URL/users/$USER_ID" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"full_name":"Test CRUD User Updated","role":"USER"}')
+  -d '{"full_name":"Test CRUD User Updated"}')
 
 HTTP_CODE=$(echo "$UPDATE_USER" | tail -n1)
 if [ "$HTTP_CODE" = "200" ]; then
@@ -269,11 +269,11 @@ fi
 
 # Test 16: List Users
 echo "Test 16: List users..."
-LIST_USERS=$(curl -s "$BASE_URL/users" \
+LIST_USERS=$(curl -L -s "$BASE_URL/users" \
   -H "Authorization: Bearer $TOKEN")
 
-USERS_COUNT=$(echo "$LIST_USERS" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('users',[])))" 2>/dev/null)
-if [ "$USERS_COUNT" -gt 0 ]; then
+USERS_COUNT=$(echo "$LIST_USERS" | python3 -c "import sys,json; data=json.load(sys.stdin); print(len(data) if isinstance(data, list) else len(data.get('users',[])))" 2>/dev/null)
+if [ ! -z "$USERS_COUNT" ] && [ "$USERS_COUNT" -gt 0 ]; then
     test_result 0 "List Users (Found: $USERS_COUNT users)"
 else
     test_result 1 "List Users"
@@ -281,7 +281,7 @@ fi
 
 # Test 17: Delete User
 echo "Test 17: Delete user..."
-DELETE_USER=$(curl -s -w "\n%{http_code}" -X DELETE "$BASE_URL/users/$USER_ID" \
+DELETE_USER=$(curl -L -s -w "\n%{http_code}" -X DELETE "$BASE_URL/users/$USER_ID" \
   -H "Authorization: Bearer $TOKEN")
 
 HTTP_CODE=$(echo "$DELETE_USER" | tail -n1)
@@ -293,7 +293,7 @@ fi
 
 # Test 18: Verify deletion
 echo "Test 18: Verify user deletion..."
-VERIFY_DELETE=$(curl -s -w "\n%{http_code}" "$BASE_URL/users/$USER_ID" \
+VERIFY_DELETE=$(curl -L -s -w "\n%{http_code}" "$BASE_URL/users/$USER_ID" \
   -H "Authorization: Bearer $TOKEN")
 
 HTTP_CODE=$(echo "$VERIFY_DELETE" | tail -n1)

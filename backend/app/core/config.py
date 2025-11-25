@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     TUNNEL_HTTPS_PORT: int = Field(default=8443, env="TUNNEL_HTTPS_PORT")
     TUNNEL_HUB_HOST: str = Field(default="46.101.189.126", env="TUNNEL_HUB_HOST")
 
+    # Script Generator Service
+    SCRIPT_GENERATOR_URL: str = Field(
+        default="http://localhost:3001",
+        env="SCRIPT_GENERATOR_URL"
+    )
+
     # Aliases for provisioning
     @property
     def HUB_HOST(self) -> str:

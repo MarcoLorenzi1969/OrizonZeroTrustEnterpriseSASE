@@ -1,0 +1,155 @@
+#!/bin/bash
+#
+# Orizon Zero Trust Connect - Linux Agent Installation Script
+# Generated: {{timestamp}}
+# Node: {{nodeName}}
+#
+
+set -e
+
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║   Orizon Zero Trust Connect - Agent Installation          ║"
+echo "║   Node: {{nodeName}}                                       ║"
+echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+
+# Configuration
+HUB_HOST="{{hubHost}}"
+HUB_SSH_PORT="{{hubSshPort}}"
+AGENT_TOKEN="{{agentToken}}"
+NODE_ID="{{nodeId}}"
+TUNNEL_TYPE="{{tunnelType}}"
+API_BASE_URL="{{apiBaseUrl}}"
+
+# Applications and ports
+{{#each applicationPorts}}
+APP_{{@key}}_LOCAL="{{this.local}}"
+APP_{{@key}}_REMOTE="{{this.remote}}"
+{{/each}}
+
+echo "📦 1. Installing dependencies..."
+if command -v apt-get &> /dev/null; then
+    sudo apt-get update -qq
+    sudo apt-get install -y curl openssh-client jq
+elif command -v yum &> /dev/null; then
+    sudo yum install -y curl openssh-clients jq
+elif command -v dnf &> /dev/null; then
+    sudo dnf install -y curl openssh jq
+else
+    echo "❌ Unsupported package manager. Please install curl, openssh-client, and jq manually."
+    exit 1
+fi
+
+echo ""
+echo "📥 2. Downloading Orizon agent..."
+AGENT_DIR="/opt/orizon-agent"
+sudo mkdir -p "$AGENT_DIR"
+
+# Download agent binary
+curl -fsSL "${API_BASE_URL}/agent/download/linux" -o /tmp/orizon-agent
+sudo mv /tmp/orizon-agent "$AGENT_DIR/orizon-agent"
+sudo chmod +x "$AGENT_DIR/orizon-agent"
+
+echo ""
+echo "🔧 3. Configuring agent..."
+
+# Create configuration file
+sudo tee "$AGENT_DIR/config.json" > /dev/null <<EOF
+{
+  "nodeId": "$NODE_ID",
+  "agentToken": "$AGENT_TOKEN",
+  "hubHost": "$HUB_HOST",
+  "hubSshPort": $HUB_SSH_PORT,
+  "tunnelType": "$TUNNEL_TYPE",
+  "apiBaseUrl": "$API_BASE_URL",
+  "applications": {
+{{#each applicationPorts}}
+    "{{@key}}": {
+      "localPort": {{this.local}},
+      "remotePort": {{this.remote}}
+    }{{#unless @last}},{{/unless}}
+{{/each}}
+  }
+}
+EOF
+
+echo ""
+echo "🔑 4. Setting up SSH tunnel authentication..."
+
+# Generate SSH key pair if not exists
+SSH_KEY_DIR="$AGENT_DIR/.ssh"
+sudo mkdir -p "$SSH_KEY_DIR"
+if [ ! -f "$SSH_KEY_DIR/id_ed25519" ]; then
+    sudo ssh-keygen -t ed25519 -f "$SSH_KEY_DIR/id_ed25519" -N "" -C "orizon-agent-$NODE_ID"
+fi
+
+# Register public key with hub
+PUBLIC_KEY=$(sudo cat "$SSH_KEY_DIR/id_ed25519.pub")
+REGISTER_RESPONSE=$(curl -fsSL -X POST "${API_BASE_URL}/nodes/$NODE_ID/register-key" \
+    -H "Authorization: Bearer $AGENT_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"publicKey\": \"$PUBLIC_KEY\"}")
+
+if echo "$REGISTER_RESPONSE" | jq -e '.success' > /dev/null 2>&1; then
+    echo "✅ SSH key registered successfully"
+else
+    echo "❌ Failed to register SSH key: $REGISTER_RESPONSE"
+    exit 1
+fi
+
+echo ""
+echo "🚀 5. Creating systemd service..."
+
+sudo tee /etc/systemd/system/orizon-agent.service > /dev/null <<EOF
+[Unit]
+Description=Orizon Zero Trust Connect Agent
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$AGENT_DIR
+ExecStart=$AGENT_DIR/orizon-agent start
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable orizon-agent
+sudo systemctl start orizon-agent
+
+echo ""
+echo "⏳ 6. Waiting for agent to connect..."
+sleep 5
+
+# Check agent status
+if sudo systemctl is-active --quiet orizon-agent; then
+    echo "✅ Agent is running"
+
+    # Verify tunnels
+    echo ""
+    echo "🔍 Tunnel status:"
+{{#each applicationPorts}}
+    echo "   - {{@key}}: localhost:{{this.local}} → $HUB_HOST:{{this.remote}}"
+{{/each}}
+else
+    echo "❌ Agent failed to start. Check logs with: sudo journalctl -u orizon-agent -n 50"
+    exit 1
+fi
+
+echo ""
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║  ✅ INSTALLATION COMPLETE                                 ║"
+echo "╠════════════════════════════════════════════════════════════╣"
+echo "║  Node ID: $NODE_ID                                         ║"
+echo "║  Hub: $HUB_HOST:$HUB_SSH_PORT                              ║"
+echo "║  Tunnel Type: $TUNNEL_TYPE                                 ║"
+echo "║                                                            ║"
+echo "║  Useful commands:                                          ║"
+echo "║  - Check status: sudo systemctl status orizon-agent        ║"
+echo "║  - View logs: sudo journalctl -u orizon-agent -f           ║"
+echo "║  - Restart: sudo systemctl restart orizon-agent            ║"
+echo "╚════════════════════════════════════════════════════════════╝"

@@ -76,6 +76,7 @@ services:
       POSTGRES_SERVER: postgres
       REDIS_HOST: redis
       MONGODB_URL: mongodb://mongodb:27017
+      SCRIPT_GENERATOR_URL: http://script-generator:3001
     ports:
       - "8000:8000"
     volumes:
@@ -88,6 +89,31 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
+      script-generator:
+        condition: service_started
+    networks:
+      - orizon-network
+
+  # Script Generator Service (Node.js microservice)
+  script-generator:
+    build:
+      context: ./script-generator
+      dockerfile: Dockerfile
+    container_name: orizon-script-generator
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      LOG_LEVEL: info
+      BACKEND_API_URL: http://backend:8000
+      HUB_HOST: 139.59.149.48
+      HUB_SSH_PORT: 2222
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - orizon-network
 

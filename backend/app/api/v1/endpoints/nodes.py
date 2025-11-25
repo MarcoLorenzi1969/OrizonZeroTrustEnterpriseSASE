@@ -7,15 +7,18 @@ Node management with QR code provisioning
 
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import uuid4
+import secrets
+import httpx
 
 from app.core.database import get_db
 from app.core.config import settings
 from app.auth.dependencies import get_current_user, require_role
 from app.models.user import User, UserRole
-from app.models.node import Node, NodeStatus
+from app.models.node import Node, NodeStatus, ExposedApplication
 from app.schemas.node import (
     NodeCreate,
     NodeUpdate,
@@ -41,11 +44,48 @@ async def create_node(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Create a new node
+    Create a new node with reverse tunnel configuration
 
     Requires authentication. Users can only create nodes for themselves.
     Admins can create nodes for any user.
+
+    The agent_token returned should be used in the installation script.
     """
+    # Generate unique agent token
+    agent_token = f"agt_{secrets.token_urlsafe(32)}"
+
+    # Build application_ports with defaults if not provided
+    application_ports = {}
+    for app in node_data.exposed_applications:
+        app_value = app.value if hasattr(app, 'value') else app
+
+        if node_data.application_ports and app_value in node_data.application_ports:
+            # Use provided config
+            port_config = node_data.application_ports[app_value]
+            application_ports[app_value] = {
+                "local": port_config.local,
+                "remote": port_config.remote
+            }
+        else:
+            # Use defaults
+            temp_node = Node()
+            defaults = temp_node.get_default_ports_for_application(ExposedApplication(app_value))
+            application_ports[app_value] = defaults
+
+    # Auto-assign remote ports if not specified
+    base_remote_port = 10000
+    used_ports = set()
+    for app_name, ports in application_ports.items():
+        if ports.get("remote") is None:
+            # Find next available port
+            while base_remote_port in used_ports:
+                base_remote_port += 1
+            ports["remote"] = base_remote_port
+            used_ports.add(base_remote_port)
+            base_remote_port += 1
+        else:
+            used_ports.add(ports["remote"])
+
     # Create node
     node = Node(
         id=str(uuid4()),
@@ -58,13 +98,17 @@ async def create_node(
         tags=node_data.tags,
         status=NodeStatus.OFFLINE,
         owner_id=current_user.id,
+        agent_token=agent_token,
+        reverse_tunnel_type=node_data.reverse_tunnel_type.value if hasattr(node_data.reverse_tunnel_type, 'value') else node_data.reverse_tunnel_type,
+        exposed_applications=[app.value if hasattr(app, 'value') else app for app in node_data.exposed_applications],
+        application_ports=application_ports,
     )
 
     db.add(node)
     await db.commit()
     await db.refresh(node)
 
-    logger.info(f"📦 Node created: {node.name} (ID: {node.id}) by user {current_user.username}")
+    logger.info(f"📦 Node created: {node.name} (ID: {node.id}, Tunnel: {node.reverse_tunnel_type}) by user {current_user.username}")
 
     return node
 
@@ -302,4 +346,178 @@ async def generate_provision_data(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate provision data: {str(e)}"
+        )
+
+
+# === Script Generation Endpoints ===
+
+@router.get("/{node_id}/install-script/{os_type}", response_class=PlainTextResponse)
+async def get_install_script(
+    node_id: str,
+    os_type: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Generate installation script for a specific OS
+
+    os_type: linux, macos, or windows
+    Returns the script as plain text for download
+    """
+    # Validate OS type
+    if os_type not in ['linux', 'macos', 'windows']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OS type. Must be linux, macos, or windows"
+        )
+
+    # Get node
+    result = await db.execute(select(Node).where(Node.id == node_id))
+    node = result.scalar_one_or_none()
+
+    if not node:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Node not found"
+        )
+
+    # Check permissions via groups
+    if current_user.role != UserRole.SUPERUSER:
+        accessible_node_ids = await GroupService.get_accessible_nodes_for_user(db, current_user)
+        if node_id not in accessible_node_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this node"
+            )
+
+    # Prepare script generation request
+    script_request = {
+        "nodeId": node.id,
+        "nodeName": node.name,
+        "agentToken": node.agent_token,
+        "hubHost": settings.HUB_HOST,
+        "hubSshPort": settings.HUB_SSH_PORT,
+        "tunnelType": node.reverse_tunnel_type,
+        "apiBaseUrl": settings.API_BASE_URL,
+        "applicationPorts": node.application_ports or {}
+    }
+
+    try:
+        # Call script-generator microservice
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{settings.SCRIPT_GENERATOR_URL}/api/scripts/generate/{os_type}",
+                json=script_request,
+                timeout=30.0
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Script generator error: {response.text}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to generate script"
+                )
+
+            script_content = response.text
+
+            logger.info(f"📜 Script generated for node {node.name} ({os_type})")
+
+            # Set appropriate filename
+            extension = '.ps1' if os_type == 'windows' else '.sh'
+            filename = f"orizon-install-{node.name}{extension}"
+
+            return PlainTextResponse(
+                content=script_content,
+                media_type="text/plain",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"'
+                }
+            )
+
+    except httpx.RequestError as e:
+        logger.error(f"❌ Failed to connect to script generator: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Script generator service unavailable"
+        )
+
+
+@router.get("/{node_id}/install-scripts")
+async def get_all_install_scripts(
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Generate installation scripts for all platforms
+
+    Returns scripts for Linux, macOS, and Windows
+    """
+    # Get node
+    result = await db.execute(select(Node).where(Node.id == node_id))
+    node = result.scalar_one_or_none()
+
+    if not node:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Node not found"
+        )
+
+    # Check permissions via groups
+    if current_user.role != UserRole.SUPERUSER:
+        accessible_node_ids = await GroupService.get_accessible_nodes_for_user(db, current_user)
+        if node_id not in accessible_node_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this node"
+            )
+
+    # Prepare script generation request
+    script_request = {
+        "nodeId": node.id,
+        "nodeName": node.name,
+        "agentToken": node.agent_token,
+        "hubHost": settings.HUB_HOST,
+        "hubSshPort": settings.HUB_SSH_PORT,
+        "tunnelType": node.reverse_tunnel_type,
+        "apiBaseUrl": settings.API_BASE_URL,
+        "applicationPorts": node.application_ports or {}
+    }
+
+    try:
+        # Call script-generator microservice
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{settings.SCRIPT_GENERATOR_URL}/api/scripts/generate-all",
+                json=script_request,
+                timeout=30.0
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Script generator error: {response.text}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to generate scripts"
+                )
+
+            scripts_data = response.json()
+
+            logger.info(f"📜 All scripts generated for node {node.name}")
+
+            return {
+                "nodeId": node.id,
+                "nodeName": node.name,
+                "scripts": scripts_data.get("scripts", {}),
+                "downloadUrls": {
+                    "linux": f"/api/v1/nodes/{node_id}/install-script/linux",
+                    "macos": f"/api/v1/nodes/{node_id}/install-script/macos",
+                    "windows": f"/api/v1/nodes/{node_id}/install-script/windows"
+                }
+            }
+
+    except httpx.RequestError as e:
+        logger.error(f"❌ Failed to connect to script generator: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Script generator service unavailable"
         )

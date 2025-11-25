@@ -1,0 +1,141 @@
+# Orizon Zero Trust Connect - Windows Agent Installation Script
+# Generated: {{timestamp}}
+# Node: {{nodeName}}
+
+$ErrorActionPreference = "Stop"
+
+Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "║   Orizon Zero Trust Connect - Agent Installation          ║" -ForegroundColor Cyan
+Write-Host "║   Node: {{nodeName}}                                       ║" -ForegroundColor Cyan
+Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host ""
+
+# Configuration
+$HubHost = "{{hubHost}}"
+$HubSshPort = {{hubSshPort}}
+$AgentToken = "{{agentToken}}"
+$NodeId = "{{nodeId}}"
+$TunnelType = "{{tunnelType}}"
+$ApiBaseUrl = "{{apiBaseUrl}}"
+
+# Applications and ports
+$ApplicationPorts = @{
+{{#each applicationPorts}}
+    "{{@key}}" = @{
+        "local" = {{this.local}}
+        "remote" = {{this.remote}}
+    }{{#unless @last}};{{/unless}}
+{{/each}}
+}
+
+Write-Host "📦 1. Checking Administrator privileges..." -ForegroundColor Yellow
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Write-Host "❌ This script must be run as Administrator" -ForegroundColor Red
+    Write-Host "   Right-click PowerShell and select 'Run as Administrator'" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host ""
+Write-Host "📥 2. Downloading Orizon agent..." -ForegroundColor Yellow
+$AgentDir = "C:\Program Files\Orizon Agent"
+New-Item -ItemType Directory -Force -Path $AgentDir | Out-Null
+
+# Download agent binary for Windows
+$AgentExe = "$AgentDir\orizon-agent.exe"
+Invoke-WebRequest -Uri "$ApiBaseUrl/agent/download/windows" -OutFile $AgentExe
+
+Write-Host ""
+Write-Host "🔧 3. Configuring agent..." -ForegroundColor Yellow
+
+# Create configuration file
+$ConfigJson = @{
+    nodeId = $NodeId
+    agentToken = $AgentToken
+    hubHost = $HubHost
+    hubSshPort = $HubSshPort
+    tunnelType = $TunnelType
+    apiBaseUrl = $ApiBaseUrl
+    applications = $ApplicationPorts
+} | ConvertTo-Json -Depth 10
+
+Set-Content -Path "$AgentDir\config.json" -Value $ConfigJson
+
+Write-Host ""
+Write-Host "🔑 4. Setting up SSH tunnel authentication..." -ForegroundColor Yellow
+
+# Generate SSH key pair if not exists
+$SshKeyDir = "$AgentDir\.ssh"
+New-Item -ItemType Directory -Force -Path $SshKeyDir | Out-Null
+
+$SshKeyPath = "$SshKeyDir\id_ed25519"
+if (-Not (Test-Path $SshKeyPath)) {
+    ssh-keygen -t ed25519 -f $SshKeyPath -N '""' -C "orizon-agent-$NodeId"
+}
+
+# Register public key with hub
+$PublicKey = Get-Content "$SshKeyPath.pub" -Raw
+$RegisterBody = @{
+    publicKey = $PublicKey.Trim()
+} | ConvertTo-Json
+
+try {
+    $RegisterResponse = Invoke-RestMethod -Method Post -Uri "$ApiBaseUrl/nodes/$NodeId/register-key" `
+        -Headers @{
+            "Authorization" = "Bearer $AgentToken"
+            "Content-Type" = "application/json"
+        } `
+        -Body $RegisterBody
+
+    if ($RegisterResponse.success) {
+        Write-Host "✅ SSH key registered successfully" -ForegroundColor Green
+    } else {
+        throw "Registration failed"
+    }
+} catch {
+    Write-Host "❌ Failed to register SSH key: $_" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host ""
+Write-Host "🚀 5. Creating Windows Service..." -ForegroundColor Yellow
+
+# Install Windows Service
+& $AgentExe install-service
+Start-Service -Name "OrizonAgent"
+Set-Service -Name "OrizonAgent" -StartupType Automatic
+
+Write-Host ""
+Write-Host "⏳ 6. Waiting for agent to connect..." -ForegroundColor Yellow
+Start-Sleep -Seconds 5
+
+# Check agent status
+$ServiceStatus = Get-Service -Name "OrizonAgent" -ErrorAction SilentlyContinue
+if ($ServiceStatus -and $ServiceStatus.Status -eq "Running") {
+    Write-Host "✅ Agent is running" -ForegroundColor Green
+
+    # Verify tunnels
+    Write-Host ""
+    Write-Host "🔍 Tunnel status:" -ForegroundColor Cyan
+    foreach ($app in $ApplicationPorts.Keys) {
+        $local = $ApplicationPorts[$app]["local"]
+        $remote = $ApplicationPorts[$app]["remote"]
+        Write-Host "   - ${app}: localhost:$local → ${HubHost}:$remote" -ForegroundColor Cyan
+    }
+} else {
+    Write-Host "❌ Agent failed to start. Check Event Viewer for details." -ForegroundColor Red
+    exit 1
+}
+
+Write-Host ""
+Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor Green
+Write-Host "║  ✅ INSTALLATION COMPLETE                                 ║" -ForegroundColor Green
+Write-Host "╠════════════════════════════════════════════════════════════╣" -ForegroundColor Green
+Write-Host "║  Node ID: $NodeId                                          ║" -ForegroundColor Green
+Write-Host "║  Hub: ${HubHost}:${HubSshPort}                             ║" -ForegroundColor Green
+Write-Host "║  Tunnel Type: $TunnelType                                  ║" -ForegroundColor Green
+Write-Host "║                                                            ║" -ForegroundColor Green
+Write-Host "║  Useful commands:                                          ║" -ForegroundColor Green
+Write-Host "║  - Check status: Get-Service OrizonAgent                   ║" -ForegroundColor Green
+Write-Host "║  - View logs: Get-EventLog -LogName Application -Source OrizonAgent ║" -ForegroundColor Green
+Write-Host "║  - Restart: Restart-Service OrizonAgent                    ║" -ForegroundColor Green
+Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Green

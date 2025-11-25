@@ -38,6 +38,20 @@ class NodeType(str, enum.Enum):
     KUBERNETES = "kubernetes"
 
 
+class ReverseTunnelType(str, enum.Enum):
+    """Reverse tunnel protocols"""
+    SSH = "SSH"
+    SSL = "SSL"
+
+
+class ExposedApplication(str, enum.Enum):
+    """Applications that can be exposed through reverse tunnel"""
+    TERMINAL = "TERMINAL"
+    RDP = "RDP"
+    VNC = "VNC"
+    WEB_SERVER = "WEB_SERVER"
+
+
 class Node(Base):
     """Edge node in the network"""
     
@@ -67,7 +81,17 @@ class Node(Base):
     # Agent info
     agent_version = Column(String(50))
     agent_installed_at = Column(DateTime)
-    
+    agent_token = Column(String(255), unique=True, nullable=True, index=True)
+
+    # Reverse tunnel configuration
+    reverse_tunnel_type = Column(
+        String(20),
+        default=ReverseTunnelType.SSH.value,
+        nullable=False
+    )
+    exposed_applications = Column(JSON, default=list, nullable=False)
+    application_ports = Column(JSON, default=dict, nullable=False)
+
     # Location (optional)
     location = Column(String(255))
     latitude = Column(Float, nullable=True)
@@ -115,3 +139,13 @@ class Node(Base):
             return 0
         delta = datetime.utcnow() - self.last_heartbeat
         return int(delta.total_seconds())
+
+    def get_default_ports_for_application(self, app: ExposedApplication) -> dict:
+        """Get default local/remote ports for an application"""
+        defaults = {
+            ExposedApplication.TERMINAL: {"local": 22, "remote": None},
+            ExposedApplication.RDP: {"local": 3389, "remote": None},
+            ExposedApplication.VNC: {"local": 5900, "remote": None},
+            ExposedApplication.WEB_SERVER: {"local": 80, "remote": None},
+        }
+        return defaults.get(app, {"local": None, "remote": None})

@@ -15,7 +15,11 @@ import {
   X,
   RefreshCw,
   Edit2,
-  Save
+  Save,
+  Monitor,
+  Copy,
+  Check,
+  FileCode
 } from 'lucide-react'
 import api from '../services/api'
 import toast from 'react-hot-toast'
@@ -31,9 +35,22 @@ function NodesPage() {
   const [selectedNode, setSelectedNode] = useState(null)
   const [editingNode, setEditingNode] = useState(null)
   const [editForm, setEditForm] = useState({ name: '', location: '' })
+  const [showScriptsModal, setShowScriptsModal] = useState(false)
+  const [scriptsData, setScriptsData] = useState(null)
+  const [copiedScript, setCopiedScript] = useState(null)
 
-  // Form state for new node
+  // Form state for new node (updated with reverse tunnel config)
   const [nodeName, setNodeName] = useState('')
+  const [nodeHostname, setNodeHostname] = useState('')
+  const [nodeType, setNodeType] = useState('linux')
+  const [reverseTunnelType, setReverseTunnelType] = useState('SSH')
+  const [exposedApplications, setExposedApplications] = useState({
+    TERMINAL: true,
+    RDP: false,
+    VNC: false,
+    WEB_SERVER: false
+  })
+  // Legacy protocols (keeping for backward compatibility)
   const [protocols, setProtocols] = useState({
     ssh: true,
     https: true,
@@ -82,6 +99,123 @@ function NodesPage() {
       ...prev,
       [protocol]: !prev[protocol]
     }))
+  }
+
+  const handleApplicationToggle = (app) => {
+    setExposedApplications(prev => ({
+      ...prev,
+      [app]: !prev[app]
+    }))
+  }
+
+  // Create new node with reverse tunnel config
+  const createNode = async () => {
+    if (!nodeName.trim()) {
+      toast.error('Please enter a node name')
+      return
+    }
+    if (!nodeHostname.trim()) {
+      toast.error('Please enter a hostname')
+      return
+    }
+
+    const selectedApps = Object.keys(exposedApplications).filter(app => exposedApplications[app])
+    if (selectedApps.length === 0) {
+      toast.error('Please select at least one application to expose')
+      return
+    }
+
+    try {
+      debugService.info('Nodes Page', {
+        message: 'Creating new node...',
+        nodeName,
+        nodeType,
+        reverseTunnelType,
+        exposedApplications: selectedApps
+      })
+
+      const response = await api.post('/nodes', {
+        name: nodeName,
+        hostname: nodeHostname,
+        node_type: nodeType,
+        reverse_tunnel_type: reverseTunnelType,
+        exposed_applications: selectedApps
+      })
+
+      const newNode = response.data
+      debugService.success('Nodes Page', {
+        message: 'Node created successfully',
+        nodeId: newNode.id,
+        agentToken: newNode.agent_token ? newNode.agent_token.substring(0, 20) + '...' : 'N/A'
+      })
+
+      toast.success('Node created successfully!')
+
+      // Show scripts modal with the new node data
+      setScriptsData({
+        node: newNode,
+        scripts: null // Will be fetched on demand
+      })
+      setShowScriptsModal(true)
+      setShowAddModal(false)
+      loadNodes()
+    } catch (error) {
+      debugService.error('Nodes Page', {
+        message: 'Failed to create node',
+        error: error.response?.data?.detail || error.message
+      })
+      toast.error(error.response?.data?.detail || 'Failed to create node')
+    }
+  }
+
+  // Fetch installation scripts for a node
+  const fetchScripts = async (node) => {
+    try {
+      setScriptsData({ node, scripts: null, loading: true })
+      setShowScriptsModal(true)
+
+      const response = await api.get(`/nodes/${node.id}/install-scripts`)
+      setScriptsData({
+        node,
+        scripts: response.data.scripts,
+        loading: false
+      })
+    } catch (error) {
+      debugService.error('Nodes Page', {
+        message: 'Failed to fetch scripts',
+        error: error.message
+      })
+      toast.error('Failed to fetch installation scripts')
+      setScriptsData({ node, scripts: null, loading: false, error: error.message })
+    }
+  }
+
+  // Copy script to clipboard
+  const copyScript = async (osType, script) => {
+    try {
+      await navigator.clipboard.writeText(script)
+      setCopiedScript(osType)
+      toast.success(`${osType} script copied to clipboard!`)
+      setTimeout(() => setCopiedScript(null), 2000)
+    } catch (error) {
+      toast.error('Failed to copy script')
+    }
+  }
+
+  // Download script as file
+  const downloadScript = (osType, script, nodeName) => {
+    const extension = osType === 'windows' ? '.ps1' : '.sh'
+    const mimeType = osType === 'windows' ? 'application/x-powershell' : 'application/x-sh'
+    const blob = new Blob([script], { type: mimeType })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `orizon-install-${nodeName}${extension}`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    toast.success(`${osType} script downloaded!`)
   }
 
   const generateQRCode = async () => {
@@ -206,6 +340,15 @@ function NodesPage() {
     setShowAddModal(false)
     setQrData(null)
     setNodeName('')
+    setNodeHostname('')
+    setNodeType('linux')
+    setReverseTunnelType('SSH')
+    setExposedApplications({
+      TERMINAL: true,
+      RDP: false,
+      VNC: false,
+      WEB_SERVER: false
+    })
     setProtocols({
       ssh: true,
       https: true,
@@ -213,6 +356,11 @@ function NodesPage() {
       vpn: false,
       rdp: false
     })
+  }
+
+  const closeScriptsModal = () => {
+    setShowScriptsModal(false)
+    setScriptsData(null)
   }
 
   // Safely calculate stats - ensure nodes is always an array
@@ -393,130 +541,245 @@ function NodesPage() {
             </div>
 
             <div className="p-6 space-y-6">
-              {!qrData ? (
-                <>
-                  {/* Node Name */}
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Node Name
-                    </label>
-                    <input
-                      type="text"
-                      value={nodeName}
-                      onChange={(e) => setNodeName(e.target.value)}
-                      placeholder="e.g., web-server-01"
-                      className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+              {/* Node Name */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Node Name *
+                </label>
+                <input
+                  type="text"
+                  value={nodeName}
+                  onChange={(e) => setNodeName(e.target.value)}
+                  placeholder="e.g., web-server-01"
+                  className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
 
-                  {/* Protocols Selection */}
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-3">
-                      Select Protocols to Enable
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <ProtocolCheckbox
-                        icon={Terminal}
-                        label="SSH"
-                        port="22"
-                        checked={protocols.ssh}
-                        onChange={() => handleProtocolToggle('ssh')}
-                      />
-                      <ProtocolCheckbox
-                        icon={Lock}
-                        label="HTTPS"
-                        port="443"
-                        checked={protocols.https}
-                        onChange={() => handleProtocolToggle('https')}
-                      />
-                      <ProtocolCheckbox
-                        icon={Globe}
-                        label="HTTP"
-                        port="80"
-                        checked={protocols.http}
-                        onChange={() => handleProtocolToggle('http')}
-                      />
-                      <ProtocolCheckbox
-                        icon={Shield}
-                        label="VPN"
-                        port="1194"
-                        checked={protocols.vpn}
-                        onChange={() => handleProtocolToggle('vpn')}
-                      />
-                      <ProtocolCheckbox
-                        icon={Server}
-                        label="RDP"
-                        port="3389"
-                        checked={protocols.rdp}
-                        onChange={() => handleProtocolToggle('rdp')}
-                      />
-                    </div>
-                  </div>
+              {/* Hostname */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Hostname *
+                </label>
+                <input
+                  type="text"
+                  value={nodeHostname}
+                  onChange={(e) => setNodeHostname(e.target.value)}
+                  placeholder="e.g., server.example.com or 192.168.1.100"
+                  className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
 
-                  {/* Generate Button */}
-                  <button
-                    onClick={generateQRCode}
-                    className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
-                  >
-                    Generate QR Code
-                  </button>
-                </>
-              ) : (
-                <>
-                  {/* QR Code Display */}
-                  <div className="text-center space-y-4">
-                    <div className="bg-white p-6 rounded-lg inline-block">
-                      <QRCodeSVG
-                        id="node-qr-code"
-                        value={JSON.stringify(qrData)}
-                        size={256}
-                        level="H"
-                        includeMargin={true}
-                      />
-                    </div>
+              {/* Node Type / OS */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Operating System
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { value: 'linux', label: 'Linux', icon: Terminal },
+                    { value: 'macos', label: 'macOS', icon: Monitor },
+                    { value: 'windows', label: 'Windows', icon: Server },
+                  ].map((os) => (
+                    <button
+                      key={os.value}
+                      onClick={() => setNodeType(os.value)}
+                      className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-all ${
+                        nodeType === os.value
+                          ? 'border-blue-500 bg-blue-500/10'
+                          : 'border-slate-600 bg-slate-700/50 hover:border-slate-500'
+                      }`}
+                    >
+                      <os.icon className={`w-6 h-6 ${nodeType === os.value ? 'text-blue-400' : 'text-slate-400'}`} />
+                      <span className={`text-sm font-medium ${nodeType === os.value ? 'text-white' : 'text-slate-300'}`}>
+                        {os.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-                    <div className="space-y-2">
-                      <h3 className="text-lg font-semibold text-white">
-                        Scan to Register: {nodeName}
-                      </h3>
-                      <p className="text-slate-400 text-sm">
-                        Enabled protocols: {protocols && typeof protocols === 'object'
-                          ? Object.keys(protocols).filter(p => protocols[p]).join(', ').toUpperCase()
-                          : 'None'
-                        }
-                      </p>
-                    </div>
+              {/* Reverse Tunnel Type */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Reverse Tunnel Type
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { value: 'SSH', label: 'SSH Tunnel', desc: 'Secure Shell tunnel (recommended)' },
+                    { value: 'SSL', label: 'SSL/TLS Tunnel', desc: 'HTTPS-based secure tunnel' },
+                  ].map((tunnel) => (
+                    <button
+                      key={tunnel.value}
+                      onClick={() => setReverseTunnelType(tunnel.value)}
+                      className={`flex flex-col items-start gap-1 p-4 rounded-lg border-2 transition-all text-left ${
+                        reverseTunnelType === tunnel.value
+                          ? 'border-blue-500 bg-blue-500/10'
+                          : 'border-slate-600 bg-slate-700/50 hover:border-slate-500'
+                      }`}
+                    >
+                      <span className={`font-medium ${reverseTunnelType === tunnel.value ? 'text-white' : 'text-slate-300'}`}>
+                        {tunnel.label}
+                      </span>
+                      <span className="text-xs text-slate-400">{tunnel.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-                    {/* Instructions */}
-                    <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4 text-left">
-                      <h4 className="text-blue-300 font-medium mb-2">Setup Instructions:</h4>
-                      <ol className="text-sm text-blue-400 space-y-1 list-decimal list-inside">
-                        <li>Scan this QR code with the Orizon Agent app</li>
-                        <li>The node will automatically register with selected protocols</li>
-                        <li>Tunnels will be created for each enabled protocol</li>
-                        <li>You can manage the node from this dashboard</li>
-                      </ol>
-                    </div>
+              {/* Exposed Applications */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-3">
+                  Applications to Expose *
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <ApplicationCheckbox
+                    icon={Terminal}
+                    label="Terminal"
+                    port="22"
+                    checked={exposedApplications.TERMINAL}
+                    onChange={() => handleApplicationToggle('TERMINAL')}
+                  />
+                  <ApplicationCheckbox
+                    icon={Monitor}
+                    label="RDP"
+                    port="3389"
+                    checked={exposedApplications.RDP}
+                    onChange={() => handleApplicationToggle('RDP')}
+                  />
+                  <ApplicationCheckbox
+                    icon={Server}
+                    label="VNC"
+                    port="5900"
+                    checked={exposedApplications.VNC}
+                    onChange={() => handleApplicationToggle('VNC')}
+                  />
+                  <ApplicationCheckbox
+                    icon={Globe}
+                    label="Web Server"
+                    port="80/443"
+                    checked={exposedApplications.WEB_SERVER}
+                    onChange={() => handleApplicationToggle('WEB_SERVER')}
+                  />
+                </div>
+              </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex gap-3">
-                      <button
-                        onClick={downloadQRCode}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
-                      >
-                        <Download className="w-4 h-4" />
-                        Download QR
-                      </button>
-                      <button
-                        onClick={closeModal}
-                        className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-                      >
-                        Done
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
+              {/* Summary */}
+              <div className="bg-slate-700/30 border border-slate-600 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-slate-300 mb-2">Configuration Summary</h4>
+                <div className="text-sm text-slate-400 space-y-1">
+                  <p>OS: <span className="text-white">{nodeType}</span></p>
+                  <p>Tunnel: <span className="text-white">{reverseTunnelType}</span></p>
+                  <p>Applications: <span className="text-white">
+                    {Object.keys(exposedApplications).filter(a => exposedApplications[a]).join(', ') || 'None selected'}
+                  </span></p>
+                </div>
+              </div>
+
+              {/* Create Button */}
+              <button
+                onClick={createNode}
+                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                <Plus className="w-5 h-5" />
+                Create Node
+              </button>
+
+              {/* QR Code Option (Legacy) */}
+              <div className="border-t border-slate-700 pt-4">
+                <p className="text-sm text-slate-400 text-center mb-3">Or use QR code for mobile setup</p>
+                <button
+                  onClick={generateQRCode}
+                  className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors text-sm"
+                >
+                  Generate QR Code
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Installation Scripts Modal */}
+      {showScriptsModal && scriptsData && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 rounded-xl border border-slate-700 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-slate-700 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white">Installation Scripts</h2>
+                <p className="text-slate-400 text-sm mt-1">Node: {scriptsData.node?.name}</p>
+              </div>
+              <button
+                onClick={closeScriptsModal}
+                className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Node Info */}
+              <div className="bg-green-900/20 border border-green-800/50 rounded-lg p-4">
+                <h4 className="text-green-300 font-medium mb-2">Node Created Successfully!</h4>
+                <div className="text-sm text-green-400 space-y-1">
+                  <p>Node ID: <span className="font-mono">{scriptsData.node?.id}</span></p>
+                  <p>Agent Token: <span className="font-mono">{scriptsData.node?.agent_token?.substring(0, 30)}...</span></p>
+                  <p>Tunnel Type: {scriptsData.node?.reverse_tunnel_type}</p>
+                  <p>Applications: {scriptsData.node?.exposed_applications?.join(', ')}</p>
+                </div>
+              </div>
+
+              {/* Instructions */}
+              <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4">
+                <h4 className="text-blue-300 font-medium mb-2">Installation Instructions</h4>
+                <ol className="text-sm text-blue-400 space-y-1 list-decimal list-inside">
+                  <li>Download the script for your operating system</li>
+                  <li>Run the script with administrator/root privileges</li>
+                  <li>The agent will automatically connect to the hub</li>
+                  <li>Verify the node status in this dashboard</li>
+                </ol>
+              </div>
+
+              {/* Script Download Buttons */}
+              <div className="grid grid-cols-3 gap-4">
+                <ScriptDownloadCard
+                  osType="linux"
+                  icon={Terminal}
+                  label="Linux"
+                  description="For Ubuntu, Debian, CentOS, RHEL"
+                  node={scriptsData.node}
+                  onDownload={downloadScript}
+                  onCopy={copyScript}
+                  copied={copiedScript === 'linux'}
+                />
+                <ScriptDownloadCard
+                  osType="macos"
+                  icon={Monitor}
+                  label="macOS"
+                  description="For macOS 10.15+"
+                  node={scriptsData.node}
+                  onDownload={downloadScript}
+                  onCopy={copyScript}
+                  copied={copiedScript === 'macos'}
+                />
+                <ScriptDownloadCard
+                  osType="windows"
+                  icon={Server}
+                  label="Windows"
+                  description="For Windows 10/11, Server 2016+"
+                  node={scriptsData.node}
+                  onDownload={downloadScript}
+                  onCopy={copyScript}
+                  copied={copiedScript === 'windows'}
+                />
+              </div>
+
+              {/* Close Button */}
+              <button
+                onClick={closeScriptsModal}
+                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+              >
+                Done
+              </button>
             </div>
           </div>
         </div>
@@ -644,6 +907,98 @@ function ProtocolCheckbox({ icon: Icon, label, port, checked, onChange }) {
         <div className="text-xs text-slate-400">Port {port}</div>
       </div>
     </label>
+  )
+}
+
+function ApplicationCheckbox({ icon: Icon, label, port, checked, onChange }) {
+  return (
+    <label className={`flex items-center gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${
+      checked
+        ? 'border-blue-500 bg-blue-500/10'
+        : 'border-slate-600 bg-slate-700/50 hover:border-slate-500'
+    }`}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="w-5 h-5 rounded border-slate-600 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-800"
+      />
+      <Icon className={`w-5 h-5 ${checked ? 'text-blue-400' : 'text-slate-400'}`} />
+      <div className="flex-1">
+        <div className={`font-medium ${checked ? 'text-white' : 'text-slate-300'}`}>
+          {label}
+        </div>
+        <div className="text-xs text-slate-400">Port {port}</div>
+      </div>
+    </label>
+  )
+}
+
+function ScriptDownloadCard({ osType, icon: Icon, label, description, node, onDownload, onCopy, copied }) {
+  const [loading, setLoading] = useState(false)
+  const [script, setScript] = useState(null)
+
+  const fetchScript = async () => {
+    if (script) return script
+    setLoading(true)
+    try {
+      const response = await api.get(`/nodes/${node.id}/install-script/${osType}`, {
+        responseType: 'text'
+      })
+      const text = response.data
+      setScript(text)
+      return text
+    } catch (error) {
+      console.error('Error fetching script:', error)
+      return null
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDownload = async () => {
+    const scriptContent = await fetchScript()
+    if (scriptContent) {
+      onDownload(osType, scriptContent, node.name)
+    }
+  }
+
+  const handleCopy = async () => {
+    const scriptContent = await fetchScript()
+    if (scriptContent) {
+      onCopy(osType, scriptContent)
+    }
+  }
+
+  return (
+    <div className="bg-slate-700/30 border border-slate-600 rounded-lg p-4 flex flex-col">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-12 h-12 bg-slate-600 rounded-lg flex items-center justify-center">
+          <Icon className="w-6 h-6 text-slate-300" />
+        </div>
+        <div>
+          <h4 className="text-white font-medium">{label}</h4>
+          <p className="text-xs text-slate-400">{description}</p>
+        </div>
+      </div>
+      <div className="flex gap-2 mt-auto">
+        <button
+          onClick={handleDownload}
+          disabled={loading}
+          className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white text-sm rounded-lg transition-colors"
+        >
+          <Download className="w-4 h-4" />
+          {loading ? 'Loading...' : 'Download'}
+        </button>
+        <button
+          onClick={handleCopy}
+          disabled={loading}
+          className="flex items-center justify-center gap-1 px-3 py-2 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-700 text-white text-sm rounded-lg transition-colors"
+        >
+          {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+        </button>
+      </div>
+    </div>
   )
 }
 

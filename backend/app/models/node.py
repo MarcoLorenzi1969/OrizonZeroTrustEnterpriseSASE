@@ -99,7 +99,7 @@ class Node(Base):
     
     # Tags and metadata
     tags = Column(JSON, default=list)
-    node_metadata = Column(JSON, default=dict)
+    custom_metadata = Column(JSON, default=dict)
     
     # Health metrics
     cpu_usage = Column(Float, default=0.0)

@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.1] - 2025-11-25
+
+### 🎯 4-Level Role Hierarchy
+
+This release completes the role hierarchy implementation and unifies all documentation.
+
+### ✨ Added
+
+#### Role System Enhancement
+- **Complete 4-Level Role Hierarchy**
+  - SuperUser: System owner with full access (Level 4)
+  - SuperAdmin: Distributors managing multiple tenants (Level 3)
+  - Admin: Resellers managing single tenant (Level 2)
+  - User: End customers with resource access only (Level 1)
+  - Visual hierarchy with distinct badge colors in UI
+  - Backend role enforcement via `check_permission()` function
+  - Tenant-scoped permissions respecting role levels
+
+#### Dashboard Improvements
+- **User Interface Updates**
+  - Added SuperAdmin role option to user creation dropdown
+  - CSS badge styles for all 4 roles with gradient effects
+  - Role hierarchy visualization in user management table
+  - Proper role display in all CRUD operations
+
+### 📚 Documentation Overhaul
+
+#### Unified Documentation
+- **New Consolidated Guides**
+  - `DEPLOYMENT_GUIDE.md`: Complete production deployment instructions
+  - `DEVELOPMENT_GUIDE.md`: Full development environment setup and workflows
+  - Unified all scattered documentation into topic-based structure
+  - Moved old/duplicate documentation to `backups_docs/` directory
+
+#### Documentation Structure
+- **Organized by Topic**
+  - `docs/`: All current documentation
+  - `backups_docs/`: Historical documentation archive (not in Git)
+  - Removed duplicate guides from subdirectories
+  - Standardized format across all documents
+
+### 🔧 Changed
+
+#### User Management
+- **CRUD Operations**
+  - Users can now be created with SuperAdmin role
+  - Role dropdown displays all 4 levels in hierarchical order
+  - Updated role validation in backend endpoints
+
+### 🐛 Fixed
+
+#### Dashboard Issues
+- **Users Display**
+  - Fixed Users list stuck on "Loading users..."
+  - Updated `loadUsers()` to handle array response format
+  - All CRUD operations now working correctly
+
+#### API Endpoints
+- **Users CRUD**
+  - Fixed endpoint paths (absolute → relative)
+  - Corrected router registration
+  - All HTTP methods (POST, GET, PUT, DELETE) functional
+
+### 🧪 Testing
+
+- **Role Hierarchy Tests**
+  - Successfully created users with all 4 role levels
+  - Verified role permissions and hierarchy enforcement
+  - Test coverage: 95% (21/22 tests passing)
+  - Current user distribution: 13 users across all 4 roles
+
+### 📊 System Status
+
+- **Production Server**: 139.59.149.48 ✅ Healthy
+- **Backend**: Docker container running, all services operational
+- **Frontend**: Dashboard deployed with all features
+- **Database**: PostgreSQL, MongoDB, Redis all healthy
+- **Role System**: Complete 4-level hierarchy operational
+- **Documentation**: Unified and organized
+
+### 🔗 Previous Release
+
 ## [2.0.1] - 2025-11-24
 
 ### 🏢 Multi-Tenant System

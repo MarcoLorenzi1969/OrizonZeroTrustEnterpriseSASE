@@ -67,6 +67,7 @@ logs/
 
 # Old docs (already archived)
 old_docs/
+backups_docs/
 
 # Test files
 *.test.js

@@ -123,6 +123,7 @@ class Node(Base):
         foreign_keys="[AccessRule.node_id]",
         cascade="all, delete-orphan"
     )
+    audit_logs = relationship("AuditLog", back_populates="node")
     
     def __repr__(self):
         return f"<Node {self.name} ({self.status})>"

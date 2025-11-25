@@ -15,6 +15,9 @@ COPY src ./src
 # Build TypeScript
 RUN npm run build
 
+# Copy templates to dist folder (they are not compiled by TypeScript)
+RUN mkdir -p /app/dist/templates && cp -r /app/src/templates/* /app/dist/templates/
+
 # Expose port
 EXPOSE 3001
 

@@ -15,6 +15,7 @@ from app.models.user import User, UserRole
 from app.models.user_permissions import PermissionLevel, ServiceType
 from app.services.permission_service import PermissionService
 from app.services.user_service import UserService
+from app.services.hierarchy_service import HierarchyService
 from app.auth.security import get_password_hash
 
 
@@ -100,13 +101,25 @@ class AccessLogResponse(BaseModel):
 
 # Endpoints - User Management
 
-@router.post("/users", response_model=UserResponse, dependencies=[Depends(require_role([UserRole.SUPERUSER, UserRole.SUPER_ADMIN]))])
+@router.post("/users", response_model=UserResponse, dependencies=[Depends(require_role([UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN]))])
 async def create_user(
     user_data: UserCreateRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Crea un nuovo utente (solo admin)"""
+    """
+    Crea un nuovo utente seguendo la gerarchia:
+    - SUPERUSER: può creare SUPER_ADMIN, ADMIN, USER
+    - SUPER_ADMIN: può creare ADMIN, USER
+    - ADMIN: può creare solo USER
+    """
+
+    # Verifica che l'utente possa creare il ruolo richiesto
+    if not HierarchyService.can_manage_role(current_user.role, user_data.role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Cannot create user with role {user_data.role.value}. Your role ({current_user.role.value}) can only create lower-level roles."
+        )
 
     # Verifica se email esiste già
     existing = await UserService.get_user_by_email(db, user_data.email)
@@ -116,8 +129,7 @@ async def create_user(
             detail="Email already registered"
         )
 
-    # Crea utente
-    # Generate username from email
+    # Crea utente con created_by_id per tracciare la gerarchia
     username = user_data.email.split("@")[0]
     new_user = User(
         id=str(uuid.uuid4()),
@@ -127,6 +139,7 @@ async def create_user(
         hashed_password=get_password_hash(user_data.password),
         role=user_data.role,
         is_active=user_data.is_active,
+        created_by_id=current_user.id,  # Traccia chi ha creato l'utente
     )
 
     db.add(new_user)
@@ -151,9 +164,18 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Lista tutti gli utenti (admin only)"""
+    """
+    Lista utenti in base alla gerarchia:
+    - SUPERUSER: vede tutti gli utenti
+    - SUPER_ADMIN: vede se stesso + ADMIN e USER che ha creato (e loro subordinati)
+    - ADMIN: vede se stesso + USER che ha creato
+    """
 
-    users = await UserService.list_users(db, skip=skip, limit=limit)
+    # Usa HierarchyService per ottenere solo gli utenti visibili
+    users = await HierarchyService.get_subordinate_users(db, current_user, include_self=True)
+
+    # Applica paginazione
+    paginated_users = users[skip:skip + limit]
 
     return [
         UserResponse(
@@ -165,7 +187,7 @@ async def list_users(
             created_at=user.created_at,
             last_login=user.last_login
         )
-        for user in users
+        for user in paginated_users
     ]
 
 
@@ -175,11 +197,19 @@ async def get_user(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Ottieni dettagli utente"""
+    """Ottieni dettagli utente (solo se nella propria gerarchia)"""
 
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Verifica che l'utente sia accessibile nella gerarchia
+    can_access = await HierarchyService.can_access_user(db, current_user, user_id)
+    if not can_access:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this user"
+        )
 
     return UserResponse(
         id=user.id,
@@ -192,18 +222,34 @@ async def get_user(
     )
 
 
-@router.put("/users/{user_id}", response_model=UserResponse, dependencies=[Depends(require_role([UserRole.SUPERUSER, UserRole.SUPER_ADMIN]))])
+@router.put("/users/{user_id}", response_model=UserResponse, dependencies=[Depends(require_role([UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN]))])
 async def update_user(
     user_id: str,
     user_data: UserUpdateRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Aggiorna utente"""
+    """Aggiorna utente (solo se nella propria gerarchia)"""
 
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Verifica che l'utente sia accessibile nella gerarchia
+    can_access = await HierarchyService.can_access_user(db, current_user, user_id)
+    if not can_access:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this user"
+        )
+
+    # Se si vuole cambiare il ruolo, verifica che sia permesso
+    if user_data.role is not None:
+        if not HierarchyService.can_manage_role(current_user.role, user_data.role):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Cannot assign role {user_data.role.value}. Your role can only manage lower-level roles."
+            )
 
     if user_data.full_name is not None:
         user.full_name = user_data.full_name
@@ -226,13 +272,13 @@ async def update_user(
     )
 
 
-@router.delete("/users/{user_id}", dependencies=[Depends(require_role([UserRole.SUPERUSER]))])
+@router.delete("/users/{user_id}", dependencies=[Depends(require_role([UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN]))])
 async def delete_user(
     user_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Elimina utente (solo superuser)"""
+    """Elimina utente (solo se nella propria gerarchia)"""
 
     if user_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
@@ -240,6 +286,21 @@ async def delete_user(
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Verifica che l'utente sia accessibile nella gerarchia
+    can_access = await HierarchyService.can_access_user(db, current_user, user_id)
+    if not can_access:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this user"
+        )
+
+    # Non permettere di eliminare utenti di pari o superiore livello
+    if not HierarchyService.can_manage_role(current_user.role, user.role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Cannot delete user with role {user.role.value}. Your role can only delete lower-level users."
+        )
 
     await db.delete(user)
     await db.commit()

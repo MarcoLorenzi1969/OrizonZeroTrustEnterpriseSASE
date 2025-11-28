@@ -18,8 +18,8 @@ function GroupsPage() {
 
   const loadGroups = async () => {
     try {
-      const response = await api.get('/groups')
-      setGroups(response.data.groups || [])
+      const response = await api.get('/groups/')
+      setGroups(response.data.groups || response.data || [])
     } catch (error) {
       console.error('Failed to load groups:', error)
       toast.error('Failed to load groups')
@@ -31,7 +31,7 @@ function GroupsPage() {
 
   const handleCreateGroup = async (groupData) => {
     try {
-      await api.post('/groups', groupData)
+      await api.post('/groups/', groupData)
       toast.success('Group created successfully')
       setShowCreateModal(false)
       loadGroups()

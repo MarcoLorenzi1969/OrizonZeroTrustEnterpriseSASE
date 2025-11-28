@@ -24,7 +24,9 @@ frontend/dist/
 frontend/.vite/
 frontend/.env
 frontend/.env.local
-frontend/.env.production
+# Keep .env.production and .env.development (no secrets, just config)
+# frontend/.env.production
+# frontend/.env.development
 
 # Backend
 backend/.env

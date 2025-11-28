@@ -7,7 +7,7 @@
 
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://46.101.189.126/api/v1'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
 class APIService {
   constructor() {
@@ -176,7 +176,7 @@ class APIService {
   // ============================================================================
 
   async getTunnels() {
-    const { data } = await this.client.get('/tunnels')
+    const { data } = await this.client.get('/tunnels/')
     return data.tunnels || data || []
   }
 
@@ -186,7 +186,7 @@ class APIService {
   }
 
   async createTunnel(tunnelData) {
-    const { data } = await this.client.post('/tunnels', tunnelData)
+    const { data } = await this.client.post('/tunnels/', tunnelData)
     return data
   }
 
@@ -204,8 +204,8 @@ class APIService {
   // ============================================================================
 
   async getNodes(params = {}) {
-    const { data } = await this.client.get('/nodes', { params })
-    return data.items || data || []
+    const { data } = await this.client.get('/nodes/', { params })
+    return data.nodes || data.items || data || []
   }
 
   async getNode(nodeId) {
@@ -214,12 +214,12 @@ class APIService {
   }
 
   async createNode(nodeData) {
-    const { data } = await this.client.post('/nodes', nodeData)
+    const { data } = await this.client.post('/nodes/', nodeData)
     return data
   }
 
   async updateNode(nodeId, nodeData) {
-    const { data } = await this.client.put(`/nodes/${nodeId}`, nodeData)
+    const { data } = await this.client.patch(`/nodes/${nodeId}`, nodeData)
     return data
   }
 
@@ -232,12 +232,24 @@ class APIService {
     return data
   }
 
+  async getNodeInstallScript(nodeId, osType) {
+    const response = await this.client.get(`/nodes/${nodeId}/install-script/${osType}`, {
+      responseType: 'text'
+    })
+    return response.data
+  }
+
+  async getNodeAllScripts(nodeId) {
+    const { data } = await this.client.get(`/nodes/${nodeId}/install-scripts`)
+    return data
+  }
+
   // ============================================================================
   // ACL RULES
   // ============================================================================
 
   async getACLRules(params = {}) {
-    const { data } = await this.client.get('/acl', { params })
+    const { data } = await this.client.get('/acl/', { params })
     return data.rules || data || []
   }
 
@@ -252,7 +264,7 @@ class APIService {
   }
 
   async createACLRule(ruleData) {
-    const { data } = await this.client.post('/acl', ruleData)
+    const { data } = await this.client.post('/acl/', ruleData)
     return data
   }
 
@@ -275,7 +287,7 @@ class APIService {
   // ============================================================================
 
   async getAuditLogs(params = {}) {
-    const { data } = await this.client.get('/audit', { params })
+    const { data } = await this.client.get('/audit/', { params })
     return data.logs || data || []
   }
 
@@ -297,7 +309,7 @@ class APIService {
   // ============================================================================
 
   async getUsers(params = {}) {
-    const { data } = await this.client.get('/users', { params })
+    const { data } = await this.client.get('/users/', { params })
     return data
   }
 
@@ -307,7 +319,7 @@ class APIService {
   }
 
   async createUser(userData) {
-    const { data } = await this.client.post('/users', userData)
+    const { data } = await this.client.post('/users/', userData)
     return data
   }
 
@@ -321,11 +333,57 @@ class APIService {
   }
 
   // ============================================================================
+  // GROUPS
+  // ============================================================================
+
+  async getGroups(params = {}) {
+    const { data } = await this.client.get('/groups/', { params })
+    return data.groups || data || []
+  }
+
+  async getGroup(groupId) {
+    const { data } = await this.client.get(`/groups/${groupId}`)
+    return data
+  }
+
+  async createGroup(groupData) {
+    const { data } = await this.client.post('/groups/', groupData)
+    return data
+  }
+
+  async updateGroup(groupId, groupData) {
+    const { data } = await this.client.put(`/groups/${groupId}`, groupData)
+    return data
+  }
+
+  async deleteGroup(groupId) {
+    await this.client.delete(`/groups/${groupId}`)
+  }
+
+  async addGroupMember(groupId, userId) {
+    const { data } = await this.client.post(`/groups/${groupId}/members/${userId}`)
+    return data
+  }
+
+  async removeGroupMember(groupId, userId) {
+    await this.client.delete(`/groups/${groupId}/members/${userId}`)
+  }
+
+  async addGroupNode(groupId, nodeId) {
+    const { data } = await this.client.post(`/groups/${groupId}/nodes/${nodeId}`)
+    return data
+  }
+
+  async removeGroupNode(groupId, nodeId) {
+    await this.client.delete(`/groups/${groupId}/nodes/${nodeId}`)
+  }
+
+  // ============================================================================
   // METRICS
   // ============================================================================
 
   async getMetrics() {
-    const { data } = await this.client.get('/metrics')
+    const { data } = await this.client.get('/metrics/')
     return data
   }
 

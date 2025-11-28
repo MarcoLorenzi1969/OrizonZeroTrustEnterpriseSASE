@@ -242,7 +242,7 @@ function NetworkDiagramPage() {
         data: {
           label: 'Orizon ZTC Hub',
           status: 'online',
-          ip_address: '46.101.189.126',
+          ip_address: import.meta.env.VITE_HUB_HOST || window.location.hostname,
           tunnelCount: tunnelsData.length,
           metrics: metricsMap['central-hub'] || null,
           isHub: true,

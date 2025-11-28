@@ -100,6 +100,9 @@ class NodeResponse(NodeBase):
     exposed_applications: List[str]
     application_ports: Dict[str, dict]
 
+    # Service tunnel (heartbeat/metrics)
+    service_tunnel_port: Optional[int] = None
+
     class Config:
         from_attributes = True
 
@@ -142,3 +145,53 @@ class ScriptDownloadRequest(BaseModel):
     node_id: str
     os_type: str  # linux, macos, windows
     token: str
+
+
+# === Heartbeat and Metrics Schemas ===
+
+class HeartbeatRequest(BaseModel):
+    """Heartbeat request from agent"""
+    agent_token: str
+    timestamp: Optional[datetime] = None
+    agent_version: Optional[str] = None
+    os_version: Optional[str] = None
+    kernel_version: Optional[str] = None
+    uptime_seconds: Optional[int] = None
+
+
+class HeartbeatResponse(BaseModel):
+    """Heartbeat response to agent"""
+    status: str = "ok"
+    server_time: datetime
+    next_heartbeat_seconds: int = 30
+    commands: List[Dict[str, Any]] = []  # Commands for agent to execute
+
+
+class NodeMetricsUpdate(BaseModel):
+    """Metrics update from agent"""
+    agent_token: str
+    cpu_usage: float = Field(..., ge=0, le=100)
+    memory_usage: float = Field(..., ge=0, le=100)
+    disk_usage: float = Field(..., ge=0, le=100)
+    cpu_cores: Optional[int] = None
+    memory_mb: Optional[int] = None
+    disk_gb: Optional[float] = None
+    network_rx_bytes: Optional[int] = None
+    network_tx_bytes: Optional[int] = None
+    active_connections: Optional[int] = None
+    timestamp: Optional[datetime] = None
+
+
+class NodeMetricsResponse(BaseModel):
+    """Response after metrics update"""
+    status: str = "ok"
+    received_at: datetime
+
+
+class ServiceTunnelConfig(BaseModel):
+    """Configuration for the service tunnel (heartbeat/metrics)"""
+    hub_host: str
+    hub_ssh_port: int = 2222
+    service_port: int  # Remote port on hub for this node's service tunnel
+    heartbeat_interval: int = 30
+    metrics_interval: int = 60

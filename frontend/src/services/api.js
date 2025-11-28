@@ -2,7 +2,7 @@ import axios from 'axios'
 import toast from 'react-hot-toast'
 import debugService from './debugService'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://46.101.189.126/api/v1'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
 debugService.info('API Service', { message: 'Initializing', baseURL: API_BASE_URL })
 

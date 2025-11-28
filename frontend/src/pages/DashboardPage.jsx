@@ -60,11 +60,11 @@ function DashboardPage() {
           console.warn('[Dashboard] /dashboard/stats not available:', err.message)
           return { data: { active_tunnels: 0 } }
         }),
-        api.get('/nodes').catch(err => {
+        api.get('/nodes/').catch(err => {
           console.warn('[Dashboard] /nodes not available:', err.message)
           return { data: { total: 0, items: [] } }
         }),
-        api.get('/users').catch(err => {
+        api.get('/users/').catch(err => {
           console.warn('[Dashboard] /users not available:', err.message)
           return { data: { total: 0 } }
         }),

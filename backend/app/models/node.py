@@ -92,6 +92,9 @@ class Node(Base):
     exposed_applications = Column(JSON, default=list, nullable=False)
     application_ports = Column(JSON, default=dict, nullable=False)
 
+    # Service tunnel for heartbeat/metrics (always active)
+    service_tunnel_port = Column(Integer, nullable=True)  # Remote port on hub for service tunnel
+
     # Location (optional)
     location = Column(String(255))
     latitude = Column(Float, nullable=True)

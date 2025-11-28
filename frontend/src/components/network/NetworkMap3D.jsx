@@ -378,7 +378,7 @@ const NetworkMap3D = () => {
         <div className="text-white text-sm space-y-1">
           <div>Nodes: {nodes.length}</div>
           <div>Active Connections: {connections.length}</div>
-          <div>Hub: 46.101.189.126</div>
+          <div>Hub: {import.meta.env.VITE_HUB_HOST || window.location.hostname}</div>
         </div>
       </div>
 

@@ -103,12 +103,10 @@ export default function WebTerminal({ nodeId, nodeName, onClose }) {
   }, [nodeId, nodeName])
 
   const connectWebSocket = (term) => {
-    // Get API base URL and convert to WebSocket URL
-    // Default to HTTPS for production (required for secure WebSocket)
-    const apiBase = import.meta.env.VITE_API_BASE_URL || 'https://46.101.189.126/api/v1'
-    // Correctly handle both http and https
-    const protocol = apiBase.startsWith('https') ? 'wss' : 'ws'
-    const wsUrl = apiBase.replace(/^https?:\/\//, `${protocol}://`) + `/terminal/${nodeId}`
+    // Get WebSocket URL from environment or derive from current location
+    const wsBase = import.meta.env.VITE_WS_BASE_URL ||
+      `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`
+    const wsUrl = `${wsBase}/api/v1/terminal/${nodeId}`
 
     const token = localStorage.getItem('access_token')
 

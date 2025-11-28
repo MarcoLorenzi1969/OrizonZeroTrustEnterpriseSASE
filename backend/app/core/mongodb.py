@@ -60,6 +60,13 @@ class MongoDBClient:
         await self.db.tunnel_logs.create_index([("timestamp", -1)])
         await self.db.tunnel_logs.create_index([("tunnel_id", 1)])
         await self.db.tunnel_logs.create_index([("status", 1)])
+
+        # Terminal sessions indexes
+        await self.db.terminal_sessions.create_index([("started_at", -1)])
+        await self.db.terminal_sessions.create_index([("session_id", 1)], unique=True)
+        await self.db.terminal_sessions.create_index([("node_id", 1)])
+        await self.db.terminal_sessions.create_index([("user_id", 1)])
+        await self.db.terminal_sessions.create_index([("status", 1)])
     
     async def log_audit(
         self,

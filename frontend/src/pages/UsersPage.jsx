@@ -22,10 +22,10 @@ function UsersPage() {
     try {
       setLoading(true)
       const token = localStorage.getItem('access_token')
-      const response = await api.get('/users', {
+      const response = await api.get('/users/', {
         headers: { Authorization: `Bearer ${token}` }
       })
-      setUsers(response.data.users || [])
+      setUsers(Array.isArray(response.data) ? response.data : (response.data.users || []))
     } catch (error) {
       toast.error('Failed to load users')
       console.error('Load users error:', error)
@@ -37,7 +37,7 @@ function UsersPage() {
   const handleCreateUser = async (userData) => {
     try {
       const token = localStorage.getItem('access_token')
-      await api.post('/users', userData, {
+      await api.post('/users/', userData, {
         headers: { Authorization: `Bearer ${token}` }
       })
       toast.success('User created successfully')

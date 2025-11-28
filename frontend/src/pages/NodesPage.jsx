@@ -70,8 +70,8 @@ function NodesPage() {
   const loadNodes = async () => {
     try {
       debugService.info('Nodes Page', { message: 'Loading nodes...' })
-      const response = await api.get('/nodes')
-      const items = response.data.items || []
+      const response = await api.get('/nodes/')
+      const items = response.data.nodes || response.data.items || []
       // Ensure items is always an array
       setNodes(Array.isArray(items) ? items : [])
       console.log('📋 [NodesPage] Nodi caricati:', items.length)
@@ -134,7 +134,7 @@ function NodesPage() {
         exposedApplications: selectedApps
       })
 
-      const response = await api.post('/nodes', {
+      const response = await api.post('/nodes/', {
         name: nodeName,
         hostname: nodeHostname,
         node_type: nodeType,
@@ -521,7 +521,14 @@ function NodesPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {safeNodes.map((node) => (
-            <NodeCard key={node.id} node={node} onDelete={deleteNode} onEdit={openEditModal} onOpenTerminal={handleOpenTerminal} />
+            <NodeCard
+              key={node.id}
+              node={node}
+              onDelete={deleteNode}
+              onEdit={openEditModal}
+              onOpenTerminal={handleOpenTerminal}
+              onViewScripts={fetchScripts}
+            />
           ))}
         </div>
       )}
@@ -800,26 +807,82 @@ function StatCard({ title, value, color }) {
   )
 }
 
-function NodeCard({ node, onDelete, onEdit, onOpenTerminal }) {
+function NodeCard({ node, onDelete, onEdit, onOpenTerminal, onViewScripts }) {
   const isOnline = node.status === 'online'
+  const tunnelType = node.reverse_tunnel_type || 'SSH'
 
-  console.log('🔷 [NodeCard] Rendering nodo:', node.name, 'onEdit disponibile:', !!onEdit)
+  // Get exposed apps from both exposed_applications and application_ports
+  const configuredApps = node.exposed_applications || []
+  const portApps = node.application_ports ? Object.keys(node.application_ports) : []
+  // Merge and deduplicate
+  const exposedApps = [...new Set([...configuredApps, ...portApps])]
 
   const handleSSHAccess = () => {
     onOpenTerminal(node)
   }
 
   const handleEditClick = () => {
-    console.log('🔵 [NodeCard] Edit button clicked per nodo:', node.name)
     if (onEdit) {
       onEdit(node)
-    } else {
-      console.error('❌ [NodeCard] onEdit non è definito!')
     }
+  }
+
+  const handleServiceConnect = async (service) => {
+    // Per ora apre il terminale per SSH, per altri servizi mostra info
+    if (service === 'TERMINAL') {
+      onOpenTerminal(node)
+    } else if (service === 'HTTPS') {
+      // Generate one-time proxy token and open in new window
+      try {
+        toast.loading('Generating secure access token...')
+        const response = await api.post(`/nodes/${node.id}/https-proxy-token`)
+        const { proxy_token } = response.data
+        toast.dismiss()
+
+        // Open with short opaque token (not JWT)
+        const proxyUrl = `/api/v1/nodes/${node.id}/https-proxy?t=${proxy_token}`
+        window.open(proxyUrl, '_blank', 'noopener,noreferrer')
+        toast.success('Opening secure HTTPS connection...')
+      } catch (error) {
+        toast.dismiss()
+        toast.error(error.response?.data?.detail || 'Failed to generate access token')
+      }
+    } else {
+      // Placeholder per connessioni VNC, RDP, Web
+      const ports = node.application_ports || {}
+      const portInfo = ports[service] || {}
+      toast(`${service} connection: Remote port ${portInfo.remote || 'N/A'}`)
+    }
+  }
+
+  // Icone per le applicazioni
+  const appIcons = {
+    TERMINAL: Terminal,
+    RDP: Monitor,
+    VNC: Monitor,
+    WEB_SERVER: Globe,
+    HTTPS: Lock
+  }
+
+  const appLabels = {
+    TERMINAL: 'SSH',
+    RDP: 'RDP',
+    VNC: 'VNC',
+    WEB_SERVER: 'Web',
+    HTTPS: 'HTTPS'
+  }
+
+  const appColors = {
+    TERMINAL: 'bg-green-600 hover:bg-green-700',
+    RDP: 'bg-blue-600 hover:bg-blue-700',
+    VNC: 'bg-purple-600 hover:bg-purple-700',
+    WEB_SERVER: 'bg-orange-600 hover:bg-orange-700',
+    HTTPS: 'bg-cyan-600 hover:bg-cyan-700'
   }
 
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 hover:border-slate-600 transition-colors">
+      {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
           <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
@@ -833,15 +896,21 @@ function NodeCard({ node, onDelete, onEdit, onOpenTerminal }) {
           </div>
           <div>
             <h3 className="text-white font-semibold">{node.name}</h3>
-            <p className="text-sm text-slate-400">{node.ip_address}</p>
+            <p className="text-sm text-slate-400">{node.hostname || node.ip_address}</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1">
+          <button
+            onClick={() => onViewScripts && onViewScripts(node)}
+            className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+            title="View installation scripts"
+          >
+            <FileCode className="w-4 h-4 text-slate-400" />
+          </button>
           <button
             onClick={handleEditClick}
             className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
-            title="Edit node details"
-            data-testid="edit-node-btn"
+            title="Edit node"
           >
             <Edit2 className="w-4 h-4 text-blue-400" />
           </button>
@@ -855,6 +924,7 @@ function NodeCard({ node, onDelete, onEdit, onOpenTerminal }) {
         </div>
       </div>
 
+      {/* Node Info */}
       <div className="space-y-2 mb-4">
         <div className="flex items-center justify-between text-sm">
           <span className="text-slate-400">Status</span>
@@ -863,17 +933,64 @@ function NodeCard({ node, onDelete, onEdit, onOpenTerminal }) {
           </span>
         </div>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-400">Location</span>
-          <span className="text-white">{node.location}</span>
+          <span className="text-slate-400">Tunnel</span>
+          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+            tunnelType === 'SSH' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'
+          }`}>
+            {tunnelType}
+          </span>
         </div>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-400">Last Seen</span>
-          <span className="text-white">{new Date(node.last_seen).toLocaleString()}</span>
+          <span className="text-slate-400">OS</span>
+          <span className="text-white capitalize">{node.node_type || 'linux'}</span>
         </div>
+        {node.location && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-400">Location</span>
+            <span className="text-white">{node.location}</span>
+          </div>
+        )}
       </div>
 
-      {/* SSH Access Button */}
-      {isOnline && (
+      {/* Exposed Applications */}
+      {exposedApps.length > 0 && (
+        <div className="mb-4">
+          <p className="text-xs text-slate-400 mb-2">Exposed Services</p>
+          <div className="flex flex-wrap gap-1">
+            {exposedApps.map((app) => {
+              const IconComponent = appIcons[app] || Server
+              return (
+                <span
+                  key={app}
+                  className="inline-flex items-center gap-1 px-2 py-1 bg-slate-700/50 rounded text-xs text-slate-300"
+                >
+                  <IconComponent className="w-3 h-3" />
+                  {appLabels[app] || app}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      {isOnline && exposedApps.length > 0 ? (
+        <div className="grid grid-cols-2 gap-2">
+          {exposedApps.map((app) => {
+            const IconComponent = appIcons[app] || Server
+            return (
+              <button
+                key={app}
+                onClick={() => handleServiceConnect(app)}
+                className={`flex items-center justify-center gap-1.5 px-3 py-2 text-white text-sm rounded-lg transition-colors ${appColors[app] || 'bg-slate-600 hover:bg-slate-500'}`}
+              >
+                <IconComponent className="w-4 h-4" />
+                {appLabels[app] || app}
+              </button>
+            )
+          })}
+        </div>
+      ) : isOnline ? (
         <button
           onClick={handleSSHAccess}
           className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
@@ -881,6 +998,10 @@ function NodeCard({ node, onDelete, onEdit, onOpenTerminal }) {
           <Terminal className="w-4 h-4" />
           SSH Access
         </button>
+      ) : (
+        <div className="text-center py-2 text-sm text-slate-500">
+          Node offline
+        </div>
       )}
     </div>
   )

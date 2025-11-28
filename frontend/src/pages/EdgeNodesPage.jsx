@@ -55,7 +55,7 @@ function EdgeNodesPage() {
     try {
       console.log('📋 [EdgeNodesPage] Loading nodes...')
       debugService.info('Edge Nodes Page', { message: 'Loading nodes...' })
-      const response = await api.get('/nodes')
+      const response = await api.get('/nodes/')
       const items = response.data.items || []
       setNodes(Array.isArray(items) ? items : [])
       console.log('✅ [EdgeNodesPage] Nodes loaded:', items.length)

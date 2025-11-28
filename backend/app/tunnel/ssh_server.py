@@ -79,7 +79,7 @@ class SSHReverseServer(asyncssh.SSHServer):
         logger.info(f"🔐 Authentication attempt for user: {username}")
         return True
     
-    async def public_key_auth_supported(self) -> bool:
+    def public_key_auth_supported(self) -> bool:
         """Enable public key authentication"""
         return True
     
@@ -90,33 +90,44 @@ class SSHReverseServer(asyncssh.SSHServer):
     ) -> bool:
         """
         Validate public key for authentication
-        
+
         Checks against authorized_keys file
         """
         try:
             # Load authorized keys for this user
             authorized_keys_path = Path(settings.SSH_AUTHORIZED_KEYS_PATH) / username
-            
+
             if not authorized_keys_path.exists():
                 logger.warning(f"⚠️ No authorized_keys for user: {username}")
                 return False
-            
-            # Read authorized keys
+
+            # Read authorized keys file
             authorized_keys = asyncssh.read_authorized_keys(
                 str(authorized_keys_path)
             )
-            
-            # Check if provided key is authorized
-            key_data = key.export_public_key().decode()
-            
-            for auth_key in authorized_keys:
-                if auth_key.export_public_key().decode() == key_data:
-                    logger.info(f"✅ Public key validated for user: {username}")
-                    return True
-            
+
+            # Simple key comparison - check if the key data matches
+            provided_key_data = key.export_public_key('openssh').decode().strip()
+
+            with open(authorized_keys_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        # Extract key data (format: type key comment)
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            stored_key = f"{parts[0]} {parts[1]}"
+                            # Extract just type and key from provided key
+                            provided_parts = provided_key_data.split()
+                            if len(provided_parts) >= 2:
+                                provided_key = f"{provided_parts[0]} {provided_parts[1]}"
+                                if stored_key == provided_key:
+                                    logger.info(f"✅ Public key validated for user: {username}")
+                                    return True
+
             logger.warning(f"❌ Invalid public key for user: {username}")
             return False
-            
+
         except Exception as e:
             logger.error(f"Error validating public key: {e}")
             return False
@@ -125,78 +136,53 @@ class SSHReverseServer(asyncssh.SSHServer):
         """Disable password authentication"""
         return False
     
-    async def server_requested(
-        self,
-        listen_host: str,
-        listen_port: int,
-        orig_host: str,
-        orig_port: int
-    ) -> bool:
+    def server_requested(self, listen_host: str, listen_port: int) -> bool:
         """
-        Handle reverse port forwarding request
-        
-        This is called when an agent wants to create a reverse tunnel
+        Handle reverse port forwarding request (TCP/IP forwarding)
+
+        This is called when an agent wants to create a reverse tunnel.
+        In asyncssh, this receives only listen_host and listen_port.
         """
-        conn = asyncssh.get_server_connection()
-        username = conn.get_extra_info('username')
-        
-        logger.info(
-            f"🔄 Reverse tunnel request from {username}: "
-            f"{listen_host}:{listen_port} -> {orig_host}:{orig_port}"
-        )
-        
-        try:
-            # Generate tunnel ID
-            tunnel_id = f"ssh_{username}_{listen_port}"
-            node_id = username  # Assuming username == node_id
-            
-            # Register tunnel with manager
-            async with self.db_session_factory() as db:
-                tunnel = await tunnel_manager.register_tunnel(
-                    db=db,
-                    tunnel_id=tunnel_id,
-                    node_id=node_id,
-                    tunnel_type=TunnelType.SSH,
-                    local_port=listen_port,
-                    remote_port=orig_port,
-                    connection_info={
-                        "listen_host": listen_host,
-                        "listen_port": listen_port,
-                        "orig_host": orig_host,
-                        "orig_port": orig_port,
-                        "username": username
-                    }
-                )
-                
-                if tunnel:
-                    # Track connection
-                    ssh_conn = SSHTunnelConnection(
-                        conn=conn,
-                        username=username,
-                        node_id=node_id,
-                        tunnel_id=tunnel_id
-                    )
-                    ssh_conn.forwarded_ports.add(listen_port)
-                    self.active_connections[tunnel_id] = ssh_conn
-                    
-                    logger.info(f"✅ Reverse tunnel established: {tunnel_id}")
-                    return True
-                else:
-                    logger.error(f"❌ Failed to register tunnel: {tunnel_id}")
-                    return False
-                    
-        except Exception as e:
-            logger.error(f"Error handling reverse tunnel request: {e}")
-            return False
+        logger.info(f"🔄 Reverse tunnel request: {listen_host}:{listen_port}")
+
+        # Allow all reverse port forwarding requests
+        # The actual tunnel tracking is simplified since we're inside Docker
+        return True
     
-    def session_requested(self) -> asyncssh.SSHServerSession:
+    def session_requested(self) -> bool:
         """
         Handle session requests
-        
-        We don't allow interactive sessions, only port forwarding
+
+        Allow sessions for interactive terminal access via reverse tunnel.
+        The actual session handling is done through port forwarding,
+        where the backend connects to the forwarded SSH port.
         """
-        logger.warning("⚠️ Interactive session requested (not allowed)")
-        return asyncssh.EXTENDED_DATA_STDERR
+        logger.info("📟 Interactive session requested")
+        return True
+
+    def pty_requested(
+        self,
+        term_type: str,
+        term_size: tuple,
+        term_modes: dict
+    ) -> bool:
+        """
+        Handle PTY (pseudo-terminal) requests
+
+        Allow PTY allocation for terminal sessions.
+        """
+        logger.info(f"📺 PTY requested: term={term_type}, size={term_size}")
+        return True
+
+    def shell_requested(self) -> bool:
+        """
+        Handle shell requests
+
+        We don't provide direct shell access on the hub.
+        Interactive terminals are accessed through port forwarding.
+        """
+        logger.warning("⚠️ Shell requested on hub (redirecting to forwarded port)")
+        return False
 
 
 class SSHReverseServerManager:

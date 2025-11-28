@@ -14,6 +14,8 @@ from app.api.v1.endpoints import (
     metrics,
     provision,
     groups,
+    terminal,
+    network,
 )
 
 api_router = APIRouter()
@@ -30,3 +32,9 @@ api_router.include_router(metrics.router, prefix="/metrics", tags=["Metrics"])
 
 # Public endpoints (no auth required)
 api_router.include_router(provision.router, prefix="/provision", tags=["Provisioning"])
+
+# Network topology endpoints
+api_router.include_router(network.router, prefix="/network", tags=["Network"])
+
+# WebSocket endpoints
+api_router.include_router(terminal.router, prefix="/terminal", tags=["Terminal"])

@@ -19,10 +19,11 @@ from loguru import logger
 import sys
 
 from app.core.config import settings
-from app.core.database import init_db, close_db
+from app.core.database import init_db, close_db, AsyncSessionLocal
 from app.core.redis import redis_client
 from app.core.mongodb import mongodb_client
 from app.api.v1.router import api_router
+from app.tunnel.ssh_server import init_ssh_server
 
 
 # Configure logging
@@ -67,7 +68,14 @@ async def lifespan(app: FastAPI):
         logger.info("🔌 Connecting to MongoDB...")
         await mongodb_client.connect()
         logger.info("✅ MongoDB connected")
-        
+
+        # Initialize SSH Reverse Tunnel Server
+        logger.info("🔌 Starting SSH Reverse Tunnel Server...")
+        ssh_mgr = init_ssh_server(AsyncSessionLocal)
+        await ssh_mgr.start()
+        app.state.ssh_server_manager = ssh_mgr
+        logger.info("✅ SSH Reverse Tunnel Server started")
+
         logger.info("🎉 Application started successfully!")
         
     except Exception as e:
@@ -78,8 +86,12 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("⏹️  Shutting down Orizon Zero Trust Connect...")
-    
+
     try:
+        # Stop SSH server
+        if hasattr(app.state, 'ssh_server_manager') and app.state.ssh_server_manager:
+            await app.state.ssh_server_manager.stop()
+
         await close_db()
         await redis_client.disconnect()
         await mongodb_client.disconnect()
@@ -119,6 +131,7 @@ if not settings.DEBUG:
         allowed_hosts=[
             "localhost",
             "127.0.0.1",
+            "139.59.149.48",
             "46.101.128.1",
             "46.101.189.126",
             "*.orizon.local",

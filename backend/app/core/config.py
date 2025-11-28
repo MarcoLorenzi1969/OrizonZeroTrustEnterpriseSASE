@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:5173",
+        "http://139.59.149.48",
+        "https://139.59.149.48",
         "https://46.101.128.1",
         "https://46.101.189.126"
     ]
@@ -70,6 +72,9 @@ class Settings(BaseSettings):
     TUNNEL_SSH_PORT: int = Field(default=2222, env="TUNNEL_SSH_PORT")
     TUNNEL_HTTPS_PORT: int = Field(default=8443, env="TUNNEL_HTTPS_PORT")
     TUNNEL_HUB_HOST: str = Field(default="46.101.189.126", env="TUNNEL_HUB_HOST")
+
+    # SSH Tunnel Container (for reverse tunnel connections)
+    SSH_TUNNEL_HOST: str = Field(default="ssh-tunnel", env="SSH_TUNNEL_HOST")
 
     # Script Generator Service
     SCRIPT_GENERATOR_URL: str = Field(
@@ -115,6 +120,12 @@ class Settings(BaseSettings):
     # WebSocket
     WS_HEARTBEAT_INTERVAL: int = 30  # seconds
     WS_MAX_CONNECTIONS: int = 10000
+
+    # Terminal Settings
+    TERMINAL_SESSION_TIMEOUT: int = Field(default=3600, env="TERMINAL_SESSION_TIMEOUT")  # 1 hour
+    TERMINAL_IDLE_TIMEOUT: int = Field(default=1800, env="TERMINAL_IDLE_TIMEOUT")  # 30 minutes
+    TERMINAL_MAX_SESSIONS_PER_USER: int = Field(default=5, env="TERMINAL_MAX_SESSIONS_PER_USER")
+    TERMINAL_MAX_SESSIONS_PER_NODE: int = Field(default=10, env="TERMINAL_MAX_SESSIONS_PER_NODE")
     
     # Celery
     CELERY_BROKER_URL: str = Field(

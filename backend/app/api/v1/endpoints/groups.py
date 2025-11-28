@@ -39,7 +39,8 @@ router = APIRouter()
 
 # ==================== GROUP CRUD ====================
 
-@router.post("", response_model=GroupResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=GroupResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=GroupResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def create_group(
     group_data: GroupCreate,
     db: AsyncSession = Depends(get_db),
@@ -73,7 +74,8 @@ async def create_group(
     )
 
 
-@router.get("", response_model=GroupList)
+@router.get("/", response_model=GroupList)
+@router.get("", response_model=GroupList, include_in_schema=False)
 async def list_groups(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),

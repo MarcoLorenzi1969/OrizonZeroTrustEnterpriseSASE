@@ -63,6 +63,25 @@ services:
     networks:
       - orizon-network
 
+  # SSH Tunnel Server (dedicated for edge node reverse tunnels)
+  ssh-tunnel:
+    build:
+      context: ./ssh-tunnel-server
+      dockerfile: Dockerfile
+    container_name: orizon-ssh-tunnel
+    restart: unless-stopped
+    ports:
+      - "2222:2222"  # SSH Reverse Tunnel Port
+    volumes:
+      - ssh_authorized_keys:/etc/ssh/authorized_keys
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2222"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - orizon-network
+
   # Backend API
   backend:
     build:
@@ -77,11 +96,14 @@ services:
       REDIS_HOST: redis
       MONGODB_URL: mongodb://mongodb:27017
       SCRIPT_GENERATOR_URL: http://script-generator:3001
+      SSH_TUNNEL_HOST: ssh-tunnel
     ports:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
       - backend_logs:/var/log/orizon
+      - ssh_keys:/etc/orizon  # SSH keys for tunnels
+      - ssh_authorized_keys:/etc/ssh/authorized_keys  # Shared with ssh-tunnel
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,6 +113,8 @@ services:
         condition: service_healthy
       script-generator:
         condition: service_started
+      ssh-tunnel:
+        condition: service_healthy
     networks:
       - orizon-network
 
@@ -125,6 +149,10 @@ volumes:
   mongodb_data:
     driver: local
   backend_logs:
+    driver: local
+  ssh_keys:
+    driver: local
+  ssh_authorized_keys:
     driver: local
 
 networks:

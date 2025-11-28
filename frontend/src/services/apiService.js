@@ -106,7 +106,10 @@ class APIService {
     const { data } = await this.client.post('/auth/login', { email, password })
     localStorage.setItem('access_token', data.access_token)
     localStorage.setItem('refresh_token', data.refresh_token)
-    return data
+
+    // Fetch user data immediately after login
+    const user = await this.getCurrentUser()
+    return { ...data, user }
   }
 
   async register(userData) {

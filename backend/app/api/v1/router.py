@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     groups,
     terminal,
     network,
+    user_management,
 )
 
 api_router = APIRouter()
@@ -38,3 +39,6 @@ api_router.include_router(network.router, prefix="/network", tags=["Network"])
 
 # WebSocket endpoints
 api_router.include_router(terminal.router, prefix="/terminal", tags=["Terminal"])
+
+# User management
+api_router.include_router(user_management.router, tags=["User Management"])

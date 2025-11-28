@@ -54,40 +54,23 @@ function DashboardPage() {
 
   const loadDashboardData = async () => {
     try {
-      // Load data with Promise.allSettled to handle partial failures
-      const [dashboardRes, nodesRes, usersRes, containersRes] = await Promise.allSettled([
-        api.get('/dashboard/stats').catch(err => {
-          console.warn('[Dashboard] /dashboard/stats not available:', err.message)
-          return { data: { active_tunnels: 0 } }
-        }),
-        api.get('/nodes/').catch(err => {
-          console.warn('[Dashboard] /nodes not available:', err.message)
-          return { data: { total: 0, items: [] } }
-        }),
-        api.get('/users/').catch(err => {
-          console.warn('[Dashboard] /users not available:', err.message)
-          return { data: { total: 0 } }
-        }),
-        api.get('/containers').catch(err => {
-          console.warn('[Dashboard] /containers not available:', err.message)
-          return { data: { items: [], docker_available: false } }
-        }),
-      ])
-
-      // Extract data from settled promises
-      const dashboardData = dashboardRes.status === 'fulfilled' ? dashboardRes.value.data : { active_tunnels: 0 }
-      const nodesData = nodesRes.status === 'fulfilled' ? nodesRes.value.data : { total: 0, items: [] }
-      const usersData = usersRes.status === 'fulfilled' ? usersRes.value.data : { total: 0 }
-      const containersData = containersRes.status === 'fulfilled' ? containersRes.value.data : { items: [], docker_available: false }
-
-      setStats({
-        totalNodes: nodesData.total || 0,
-        activeNodes: nodesData.items?.filter(n => n.status === 'online').length || 0,
-        totalUsers: usersData.total || 0,
-        activeTunnels: dashboardData.active_tunnels || 0,
+      // Load nodes data - the only endpoint we need
+      const nodesRes = await api.get('/nodes/').catch(err => {
+        console.warn('[Dashboard] /nodes not available:', err.message)
+        return { data: { total: 0, items: [] } }
       })
 
-      setContainers(containersData.items || [])
+      const nodesData = nodesRes.data || { total: 0, items: [] }
+      const nodeItems = nodesData.items || []
+
+      setStats({
+        totalNodes: nodesData.total || nodeItems.length || 0,
+        activeNodes: nodeItems.filter(n => n.status === 'online').length || 0,
+        totalUsers: 0, // Not implemented yet
+        activeTunnels: nodeItems.filter(n => n.tunnel_status === 'connected').length || 0,
+      })
+
+      setContainers([]) // Not implemented yet
 
       // Mock network data for chart
       setNetworkData([

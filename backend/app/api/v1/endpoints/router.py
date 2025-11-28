@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     metrics,
     provision,
     groups,
+    user_management,
 )
 
 api_router = APIRouter()
@@ -30,3 +31,6 @@ api_router.include_router(metrics.router, prefix="/metrics", tags=["Metrics"])
 
 # Public endpoints (no auth required)
 api_router.include_router(provision.router, prefix="/provision", tags=["Provisioning"])
+
+# User management
+api_router.include_router(user_management.router, tags=["User Management"])

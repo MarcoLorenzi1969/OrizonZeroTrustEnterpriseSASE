@@ -1,6 +1,6 @@
 # Orizon Zero Trust Connect - Documentazione
 
-**Versione:** 2.0.1 | **Aggiornamento:** Novembre 2025
+**Versione:** 2.0.2 | **Aggiornamento:** 28 Novembre 2025
 
 ---
 

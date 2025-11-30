@@ -75,7 +75,7 @@ echo "=== Orizon SSH Tunnel Server ==="
 
 # Ensure proper permissions
 chmod 755 /etc/ssh/authorized_keys
-chmod 600 /etc/ssh/authorized_keys/* 2>/dev/null || true
+chmod 644 /etc/ssh/authorized_keys/* 2>/dev/null || true
 
 # Create system users for each authorized key file
 for keyfile in /etc/ssh/authorized_keys/*; do

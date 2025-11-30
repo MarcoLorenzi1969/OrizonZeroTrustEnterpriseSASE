@@ -13,6 +13,9 @@ Orizon Zero Trust Connect is an enterprise-grade SD-WAN platform implementing Ze
 | [User Hierarchy](USER_HIERARCHY.md) | 4-level RBAC hierarchy system |
 | [Deployment](DEPLOYMENT.md) | Production deployment guide |
 | [Security](SECURITY.md) | Security configuration and best practices |
+| [Development](DEVELOPMENT.md) | Developer guide and contribution guidelines |
+| [User Guide](USER_GUIDE.md) | End-user manual and feature overview |
+| [Troubleshooting](TROUBLESHOOTING.md) | Common issues and solutions |
 
 ## Getting Started
 
@@ -137,4 +140,4 @@ Proprietary - Orizon / Syneto
 
 ---
 
-*Last updated: November 28, 2025*
+*Last updated: November 30, 2025*

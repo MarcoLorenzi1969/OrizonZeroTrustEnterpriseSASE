@@ -67,9 +67,10 @@ logs/
 *.key
 !*.pub
 
-# Old docs (already archived)
+# Old docs and code (archived)
 old_docs/
 backups_docs/
+backup_code/
 
 # Test files
 *.test.js

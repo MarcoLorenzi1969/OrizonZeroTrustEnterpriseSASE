@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.auth.dependencies import get_current_user, require_role
 from app.models.user import User, UserRole
 from app.models.node import Node, NodeStatus, ExposedApplication
+from app.models.tunnel import Tunnel, TunnelType, TunnelStatus as TunnelStatusEnum
 from app.schemas.node import (
     NodeCreate,
     NodeUpdate,
@@ -137,6 +138,43 @@ async def create_node(
     db.add(node)
     await db.commit()
     await db.refresh(node)
+
+    # === CREATE SYSTEM TUNNEL ===
+    # Allocate system tunnel port (range 9000-9999, separate from user tunnels)
+    result = await db.execute(
+        select(Tunnel.remote_port)
+        .where(Tunnel.is_system == True)
+        .order_by(Tunnel.remote_port.desc())
+    )
+    max_system_port = result.scalar()
+    system_tunnel_port = (max_system_port or 8999) + 1
+
+    # Ensure port is in valid range
+    if system_tunnel_port < 9000:
+        system_tunnel_port = 9000
+    if system_tunnel_port > 9999:
+        logger.error(f"❌ No system tunnel ports available (range 9000-9999 exhausted)")
+        # Don't fail node creation, just skip system tunnel
+    else:
+        # Create the system tunnel record
+        system_tunnel = Tunnel(
+            id=str(uuid4()),
+            name=f"System Tunnel - {node.name}",
+            tunnel_type=TunnelType.SSH,
+            status=TunnelStatusEnum.INACTIVE,
+            local_port=22,  # SSH on edge node
+            remote_port=system_tunnel_port,
+            hub_host=settings.HUB_HOST,
+            hub_port=settings.HUB_SSH_PORT,
+            node_id=node.id,
+            owner_id=current_user.id,
+            is_system=True,
+            custom_metadata={"purpose": "system_management", "protected": True}
+        )
+        db.add(system_tunnel)
+        await db.commit()
+
+        logger.info(f"🔗 System tunnel created for node {node.name}: port {system_tunnel_port}")
 
     logger.info(f"📦 Node created: {node.name} (ID: {node.id}, Tunnel: {node.reverse_tunnel_type}) by user {current_user.username}")
 
@@ -795,14 +833,15 @@ async def generate_https_proxy_token(
     # Generate short random token (not JWT - opaque and short)
     proxy_token = secrets.token_urlsafe(32)
 
-    # Store in Redis with 60 second expiry
+    # Store in Redis with 1 hour expiry (3600 seconds)
+    PROXY_TOKEN_EXPIRY = 3600  # 1 hour
     redis_client = await get_redis_client()
     token_data = f"{current_user.id}:{node_id}"
-    await redis_client.setex(f"proxy_token:{proxy_token}", 60, token_data)
+    await redis_client.setex(f"proxy_token:{proxy_token}", PROXY_TOKEN_EXPIRY, token_data)
 
     logger.info(f"🔐 Generated HTTPS proxy token for user={current_user.email}, node={node.name}")
 
-    return {"proxy_token": proxy_token, "expires_in": 60}
+    return {"proxy_token": proxy_token, "expires_in": PROXY_TOKEN_EXPIRY}
 
 
 @router.get("/{node_id}/https-proxy")
@@ -831,7 +870,7 @@ async def https_proxy(
             detail="Access token required. First call POST /https-proxy-token"
         )
 
-    # Get and delete token from Redis (single-use)
+    # Get token from Redis (reusable until expiry)
     redis_client = await get_redis_client()
     token_key = f"proxy_token:{t}"
     token_data = await redis_client.get(token_key)
@@ -842,8 +881,7 @@ async def https_proxy(
             detail="Invalid or expired token"
         )
 
-    # Delete token immediately (single-use)
-    await redis_client.delete(token_key)
+    # Token is now reusable - don't delete it, let it expire naturally after 1 hour
 
     # Parse token data
     try:
@@ -916,12 +954,73 @@ async def https_proxy(
 
                 logger.info(f"🌐 HTTPS proxy request to node {node.name} ({target_url})")
 
+                # Inject token refresh script before </body> to keep session alive
+                # Token expires in 1 hour, refresh every 50 minutes (3000 seconds)
+                token_refresh_script = f'''
+<script>
+(function() {{
+    const REFRESH_INTERVAL = 3000000; // 50 minutes in milliseconds
+    const NODE_ID = "{node_id}";
+    const CURRENT_TOKEN = "{t}";
+
+    // Store access token in sessionStorage for refresh
+    const accessToken = sessionStorage.getItem('orizon_access_token');
+
+    async function refreshProxyToken() {{
+        if (!accessToken) {{
+            console.log('[Orizon] No access token available for refresh');
+            return;
+        }}
+
+        try {{
+            const response = await fetch(`/api/v1/nodes/${{NODE_ID}}/https-proxy-token`, {{
+                method: 'POST',
+                headers: {{
+                    'Authorization': `Bearer ${{accessToken}}`,
+                    'Content-Type': 'application/json'
+                }}
+            }});
+
+            if (response.ok) {{
+                const data = await response.json();
+                const newToken = data.proxy_token;
+                // Update URL with new token
+                const url = new URL(window.location.href);
+                url.searchParams.set('t', newToken);
+                history.replaceState(null, '', url.toString());
+                console.log('[Orizon] Proxy token refreshed successfully');
+            }}
+        }} catch (error) {{
+            console.error('[Orizon] Token refresh failed:', error);
+        }}
+    }}
+
+    // Refresh token periodically
+    setInterval(refreshProxyToken, REFRESH_INTERVAL);
+
+    // Also refresh on visibility change (user returns to tab)
+    document.addEventListener('visibilitychange', function() {{
+        if (!document.hidden) {{
+            refreshProxyToken();
+        }}
+    }});
+}})();
+</script>
+'''
+                # Inject script before </body> or at end of content
+                if '</body>' in content.lower():
+                    content = content.replace('</body>', f'{token_refresh_script}</body>')
+                    content = content.replace('</BODY>', f'{token_refresh_script}</BODY>')
+                else:
+                    content += token_refresh_script
+
                 return HTMLResponse(
                     content=content,
                     status_code=response.status,
                     headers={
                         "X-Orizon-Node": node.name,
-                        "X-Orizon-Node-ID": node.id
+                        "X-Orizon-Node-ID": node.id,
+                        "X-Orizon-Token-Expires": "3600"
                     }
                 )
 
@@ -943,3 +1042,199 @@ async def https_proxy(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Proxy error: {str(e)}"
         )
+
+
+# === Geolocation Endpoints ===
+
+# In-memory cache for geolocation data (TTL: 6 hours)
+_geo_cache = {}
+GEO_CACHE_TTL = 6 * 60 * 60  # 6 hours in seconds
+
+
+@router.get("/{node_id}/geolocation")
+async def get_node_geolocation(
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get geolocation data for a node based on its public IP.
+
+    Returns:
+    - city, regionName, country, countryCode
+    - lat, lon (coordinates)
+    - isp, org (provider info)
+    - as, asname (Autonomous System info)
+    - timezone
+
+    Data is cached for 6 hours to respect API rate limits.
+    """
+    # Get node
+    result = await db.execute(select(Node).where(Node.id == node_id))
+    node = result.scalar_one_or_none()
+
+    if not node:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Node not found"
+        )
+
+    # Check permissions
+    if current_user.role != UserRole.SUPERUSER:
+        accessible_node_ids = await GroupService.get_accessible_nodes_for_user(db, current_user)
+        if node_id not in accessible_node_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this node"
+            )
+
+    # Get public IP
+    public_ip = node.public_ip
+    if not public_ip:
+        return {
+            "node_id": node_id,
+            "error": "No public IP available",
+            "geo": None
+        }
+
+    # Check cache
+    cache_key = f"geo:{public_ip}"
+    now = datetime.utcnow().timestamp()
+
+    if cache_key in _geo_cache:
+        cached_data, cached_time = _geo_cache[cache_key]
+        if now - cached_time < GEO_CACHE_TTL:
+            logger.debug(f"📍 Geolocation cache hit for {public_ip}")
+            return {
+                "node_id": node_id,
+                "public_ip": public_ip,
+                "geo": cached_data,
+                "cached": True,
+                "cache_age_seconds": int(now - cached_time)
+            }
+
+    # Fetch from ip-api.com
+    try:
+        async with httpx.AsyncClient() as client:
+            # Request all fields: status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,asname,query
+            response = await client.get(
+                f"http://ip-api.com/json/{public_ip}?fields=66846719",
+                timeout=10.0
+            )
+
+            if response.status_code != 200:
+                logger.error(f"ip-api.com error: {response.status_code}")
+                return {
+                    "node_id": node_id,
+                    "public_ip": public_ip,
+                    "error": "Geolocation service error",
+                    "geo": None
+                }
+
+            geo_data = response.json()
+
+            if geo_data.get("status") == "fail":
+                return {
+                    "node_id": node_id,
+                    "public_ip": public_ip,
+                    "error": geo_data.get("message", "Unknown error"),
+                    "geo": None
+                }
+
+            # Cache the result
+            _geo_cache[cache_key] = (geo_data, now)
+
+            logger.info(f"📍 Geolocation fetched for {public_ip}: {geo_data.get('city')}, {geo_data.get('country')}")
+
+            return {
+                "node_id": node_id,
+                "public_ip": public_ip,
+                "geo": geo_data,
+                "cached": False
+            }
+
+    except httpx.RequestError as e:
+        logger.error(f"❌ Geolocation request error: {e}")
+        return {
+            "node_id": node_id,
+            "public_ip": public_ip,
+            "error": f"Request failed: {str(e)}",
+            "geo": None
+        }
+
+
+@router.get("/geolocation/all")
+async def get_all_nodes_geolocation(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get geolocation data for all accessible nodes.
+
+    Returns array of nodes with their geolocation data.
+    Useful for populating the interactive map on dashboard.
+    """
+    # Get accessible nodes based on user role
+    if current_user.role == UserRole.SUPERUSER:
+        result = await db.execute(select(Node))
+        nodes = result.scalars().all()
+    else:
+        accessible_node_ids = await GroupService.get_accessible_nodes_for_user(db, current_user)
+        if not accessible_node_ids:
+            return {"nodes": []}
+        result = await db.execute(select(Node).where(Node.id.in_(accessible_node_ids)))
+        nodes = result.scalars().all()
+
+    now = datetime.utcnow().timestamp()
+    nodes_with_geo = []
+
+    for node in nodes:
+        node_data = {
+            "id": node.id,
+            "name": node.name,
+            "status": node.status.value if hasattr(node.status, 'value') else node.status,
+            "public_ip": node.public_ip,
+            "private_ip": node.private_ip,
+            "node_type": node.node_type,
+            "cpu_usage": node.cpu_usage,
+            "memory_usage": node.memory_usage,
+            "disk_usage": node.disk_usage,
+            "exposed_applications": [app.value if hasattr(app, 'value') else app for app in (node.exposed_applications or [])],
+            "geo": None,
+            "latitude": None,
+            "longitude": None,
+        }
+
+        # Get geolocation if public IP available
+        if node.public_ip:
+            cache_key = f"geo:{node.public_ip}"
+
+            if cache_key in _geo_cache:
+                cached_data, cached_time = _geo_cache[cache_key]
+                if now - cached_time < GEO_CACHE_TTL:
+                    node_data["geo"] = cached_data
+                    node_data["latitude"] = cached_data.get("lat")
+                    node_data["longitude"] = cached_data.get("lon")
+            else:
+                # Fetch from API (with rate limiting consideration)
+                try:
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(
+                            f"http://ip-api.com/json/{node.public_ip}?fields=66846719",
+                            timeout=5.0
+                        )
+
+                        if response.status_code == 200:
+                            geo_data = response.json()
+                            if geo_data.get("status") != "fail":
+                                _geo_cache[cache_key] = (geo_data, now)
+                                node_data["geo"] = geo_data
+                                node_data["latitude"] = geo_data.get("lat")
+                                node_data["longitude"] = geo_data.get("lon")
+
+                except Exception as e:
+                    logger.warning(f"Failed to get geolocation for {node.public_ip}: {e}")
+
+        nodes_with_geo.append(node_data)
+
+    return {"nodes": nodes_with_geo}

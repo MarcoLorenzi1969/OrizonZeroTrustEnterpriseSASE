@@ -14,29 +14,17 @@ import { getCurrentUser } from './store/slices/authSlice'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import EdgeProvisioningPage from './pages/EdgeProvisioningPage'
-import TunnelsPage from './pages/TunnelsPage'
 import NodesPage from './pages/NodesPage'
 import GroupsPage from './pages/GroupsPage'
-import EdgeNodesPage from './pages/EdgeNodesPage'
-import TerminalPage from './pages/TerminalPage'
-import ACLPage from './pages/ACLPage'
-import AuditPage from './pages/AuditPage'
-import SettingsPage from './pages/SettingsPage'
 import UsersPage from './pages/UsersPage'
-import NetworkDiagramPage from './pages/NetworkDiagramPage'
-import NetworkMapPage from './pages/NetworkMapPage'
-import MetricsDashboard from './pages/MetricsDashboard'
-import GuacamolePage from './pages/GuacamolePage'
 import TunnelsDashboard from './pages/TunnelsDashboard'
-import RemoteDesktopPage from './pages/RemoteDesktopPage'
-import RDPPage from './pages/RDPPage'
-import RDPDirectPage from './pages/RDPDirectPage'
-import DebugDashboardPage from './pages/DebugDashboardPage'
 
 // Layout
 import DashboardLayout from './components/layout/DashboardLayout'
 import DebugPanel from './components/DebugPanel'
+import DebugOverlay from './components/DebugOverlay'
 import debugService from './services/debugService'
+import { debugReact } from './utils/debugLogger'
 
 function App() {
   const dispatch = useDispatch()
@@ -94,9 +82,13 @@ function App() {
     )
   }
 
+  // Log App render
+  debugReact.render('App', 'Main render', { isAuthenticated, user: user?.email })
+
   return (
     <>
       <DebugPanel />
+      <DebugOverlay />
       <Routes>
         {/* Public Routes */}
         <Route
@@ -111,27 +103,13 @@ function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/tunnels-dashboard" element={<TunnelsDashboard />} />
             <Route path="/nodes" element={<NodesPage />} />
-            <Route path="/network-map" element={<NetworkMapPage />} />
-            <Route path="/terminal/:nodeId" element={<TerminalPage />} />
-            <Route path="/desktop/:nodeId" element={<RemoteDesktopPage />} />
-            <Route path="/nodes/:nodeId/rdp" element={<RDPPage />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
             {/* Admin-only routes */}
             <Route element={<AdminRoute />}>
               <Route path="/provision" element={<EdgeProvisioningPage />} />
-              <Route path="/tunnels" element={<TunnelsPage />} />
               <Route path="/groups" element={<GroupsPage />} />
-              <Route path="/edge-nodes" element={<EdgeNodesPage />} />
-              <Route path="/rdp-direct" element={<RDPDirectPage />} />
-              <Route path="/guacamole" element={<GuacamolePage />} />
-              <Route path="/network" element={<NetworkDiagramPage />} />
-              <Route path="/metrics" element={<MetricsDashboard />} />
-              <Route path="/acl" element={<ACLPage />} />
-              <Route path="/audit" element={<AuditPage />} />
               <Route path="/users" element={<UsersPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/debug" element={<DebugDashboardPage />} />
             </Route>
           </Route>
         </Route>

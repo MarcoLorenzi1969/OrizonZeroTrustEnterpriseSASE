@@ -31,6 +31,8 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://139.59.149.48",
         "https://139.59.149.48",
+        "http://68.183.219.222",
+        "https://68.183.219.222",
         "https://46.101.128.1",
         "https://46.101.189.126"
     ]

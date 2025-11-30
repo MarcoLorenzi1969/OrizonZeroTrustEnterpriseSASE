@@ -11,7 +11,9 @@ from loguru import logger
 from app.core.database import get_db
 from app.auth.dependencies import get_current_user, require_role
 from app.models.user import User, UserRole
+from app.models.tunnel import Tunnel as TunnelModel
 from app.services.tunnel_service import tunnel_service
+from sqlalchemy import select
 from app.schemas.tunnel import (
     TunnelCreate,
     TunnelInfo,
@@ -35,10 +37,13 @@ async def get_tunnels_dashboard(
     """
     Get tunnels dashboard summary
 
-    Returns summary statistics and list of active tunnels
+    Returns summary statistics, system tunnels, and application tunnels
     """
     from sqlalchemy import select, func
+    from sqlalchemy.orm import selectinload
     from app.models.node import Node, NodeStatus
+    from app.models.tunnel import Tunnel, TunnelStatus as TunnelStatusEnum
+    from datetime import datetime, timedelta
 
     try:
         # Count nodes by status
@@ -48,38 +53,89 @@ async def get_tunnels_dashboard(
         )
         status_counts = {str(row[0].value): row[1] for row in result.fetchall()}
 
-        # Get online nodes with tunnel info
+        # Get all nodes with their tunnels
         result = await db.execute(
-            select(Node)
-            .where(Node.status == NodeStatus.ONLINE)
-            .limit(50)
+            select(Node).options(selectinload(Node.tunnels))
         )
-        online_nodes = result.scalars().all()
+        all_nodes = result.scalars().all()
 
-        # Build active tunnels list
-        active_tunnels = []
-        for node in online_nodes:
-            if node.application_ports:
+        # Build system tunnels list (from tunnels table)
+        system_tunnels = []
+        application_tunnels = []
+
+        # Keep-alive threshold: if last_heartbeat > 2 minutes ago, consider unhealthy
+        keepalive_threshold = datetime.utcnow() - timedelta(minutes=2)
+
+        for node in all_nodes:
+            # Check node health for keep-alive status
+            node_is_healthy = (
+                node.status == NodeStatus.ONLINE and
+                node.last_heartbeat and
+                node.last_heartbeat > keepalive_threshold
+            )
+
+            # Process tunnels from database
+            if node.tunnels:
+                for tunnel in node.tunnels:
+                    tunnel_data = {
+                        "tunnel_id": tunnel.id,
+                        "node_id": node.id,
+                        "node_name": node.name,
+                        "name": tunnel.name,
+                        "tunnel_type": tunnel.tunnel_type.value if tunnel.tunnel_type else "ssh",
+                        "local_port": tunnel.local_port,
+                        "remote_port": tunnel.remote_port,
+                        "hub_host": tunnel.hub_host,
+                        "hub_port": tunnel.hub_port,
+                        "is_system": tunnel.is_system,
+                        "status": "active" if node_is_healthy else "inactive",
+                        "health_status": "healthy" if node_is_healthy else "unhealthy",
+                        "last_heartbeat": node.last_heartbeat.isoformat() if node.last_heartbeat else None,
+                        "created_at": tunnel.created_at.isoformat() if tunnel.created_at else None,
+                        "connected_at": tunnel.last_connected_at.isoformat() if tunnel.last_connected_at else None
+                    }
+
+                    if tunnel.is_system:
+                        system_tunnels.append(tunnel_data)
+                    else:
+                        application_tunnels.append(tunnel_data)
+
+            # Also add application ports (legacy format) as application tunnels
+            if node.application_ports and node.status == NodeStatus.ONLINE:
                 for app_name, ports in node.application_ports.items():
-                    active_tunnels.append({
+                    application_tunnels.append({
                         "tunnel_id": f"{node.id}_{app_name}",
                         "node_id": node.id,
                         "node_name": node.name,
+                        "name": f"{app_name} Tunnel",
+                        "tunnel_type": "ssh",
                         "application": app_name,
                         "local_port": ports.get("local"),
                         "remote_port": ports.get("remote"),
-                        "status": "active",
+                        "is_system": False,
+                        "status": "active" if node_is_healthy else "inactive",
+                        "health_status": "healthy" if node_is_healthy else "unhealthy",
+                        "last_heartbeat": node.last_heartbeat.isoformat() if node.last_heartbeat else None,
                         "connected_at": node.last_heartbeat.isoformat() if node.last_heartbeat else None
                     })
+
+        # Count healthy/unhealthy system tunnels
+        healthy_system_tunnels = sum(1 for t in system_tunnels if t["health_status"] == "healthy")
+        unhealthy_system_tunnels = len(system_tunnels) - healthy_system_tunnels
 
         return {
             "summary": {
                 "total_nodes": sum(status_counts.values()),
                 "online_nodes": status_counts.get("online", 0),
                 "offline_nodes": status_counts.get("offline", 0),
-                "active_tunnels": len(active_tunnels)
+                "system_tunnels": len(system_tunnels),
+                "system_tunnels_healthy": healthy_system_tunnels,
+                "system_tunnels_unhealthy": unhealthy_system_tunnels,
+                "application_tunnels": len(application_tunnels),
+                "active_tunnels": len(system_tunnels) + len(application_tunnels)
             },
-            "tunnels": active_tunnels
+            "system_tunnels": system_tunnels,
+            "tunnels": application_tunnels
         }
 
     except Exception as e:
@@ -183,8 +239,31 @@ async def close_tunnel(
     Close and cleanup tunnel
 
     Requires: Admin role or higher
+
+    Note: System tunnels (is_system=True) cannot be deleted via API.
+    They are automatically deleted when the associated node is deleted.
     """
     try:
+        # Check if this is a system tunnel
+        result = await db.execute(
+            select(TunnelModel).where(TunnelModel.id == tunnel_id)
+        )
+        tunnel = result.scalar_one_or_none()
+
+        if not tunnel:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Tunnel {tunnel_id} not found"
+            )
+
+        # Protect system tunnels from deletion
+        if tunnel.is_system:
+            logger.warning(f"⛔ Attempted to delete system tunnel {tunnel_id} by {current_user.email}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot delete system tunnel. Delete the associated node to remove this tunnel."
+            )
+
         success = await tunnel_service.close_tunnel(db, tunnel_id)
 
         if not success:

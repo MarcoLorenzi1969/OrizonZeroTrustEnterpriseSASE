@@ -50,11 +50,13 @@ PermitTunnel yes
 ClientAliveInterval 30
 ClientAliveCountMax 3
 
-# Restrict to tunnel-only (no shell)
+# Restrict to tunnel-only (no shell, but keep connection alive)
 Match User *
-    ForceCommand /bin/false
+    ForceCommand sleep infinity
     AllowTcpForwarding yes
     PermitTTY no
+    X11Forwarding no
+    PermitOpen any
 
 # Accept any user (dynamic tunnel users)
 Match User *

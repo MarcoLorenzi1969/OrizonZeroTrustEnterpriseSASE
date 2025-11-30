@@ -41,22 +41,11 @@ export default function DashboardLayout() {
 
   const navigationItems = [
     { path: '/dashboard', icon: FiHome, label: 'Dashboard' },
-    { path: '/provision', icon: FiLink, label: 'Edge Provisioning', adminOnly: true },
-    { path: '/tunnels', icon: FiActivity, label: 'Tunnels', adminOnly: true },
-    { path: '/tunnels-dashboard', icon: FiActivity, label: 'Tunnels Dashboard' },
+    { path: '/provision', icon: FiLink, label: 'Provisioning', adminOnly: true },
+    { path: '/tunnels-dashboard', icon: FiActivity, label: 'Tunnels' },
     { path: '/nodes', icon: FiServer, label: 'Nodes' },
     { path: '/groups', icon: FiUsers, label: 'Groups', adminOnly: true },
-    { path: '/edge-nodes', icon: FiServer, label: 'Edge Nodes', adminOnly: true },
-    { path: '/rdp-direct', icon: FiZap, label: 'RDP Direct', adminOnly: true },
-    { path: '/guacamole', icon: FiMonitor, label: 'Remote Access', adminOnly: true },
-    { path: '/network-map', icon: FiMap, label: 'Network Map' },
-    { path: '/network', icon: FiGlobe, label: 'Network Diagram', adminOnly: true },
-    { path: '/metrics', icon: FiBarChart2, label: 'Metrics Dashboard', adminOnly: true },
-    { path: '/acl', icon: FiShield, label: 'ACL Rules', adminOnly: true },
-    { path: '/audit', icon: FiFileText, label: 'Audit Logs', adminOnly: true },
     { path: '/users', icon: FiUser, label: 'Users', adminOnly: true },
-    { path: '/settings', icon: FiSettings, label: 'Settings', adminOnly: true },
-    { path: '/debug', icon: FiActivity, label: 'Debug Dashboard', adminOnly: true },
   ]
 
   // Filter navigation items based on user role
@@ -109,7 +98,7 @@ export default function DashboardLayout() {
                 title={!sidebarOpen ? item.label : ''}
               >
                 <Icon className="w-5 h-5 flex-shrink-0" />
-                {sidebarOpen && <span className="font-medium">{item.label}</span>}
+                {sidebarOpen && <span className="font-medium whitespace-nowrap">{item.label}</span>}
               </button>
             )
           })}

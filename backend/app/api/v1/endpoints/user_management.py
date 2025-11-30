@@ -38,6 +38,10 @@ class UserUpdateRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
+class PasswordChangeRequest(BaseModel):
+    new_password: str
+
+
 class UserResponse(BaseModel):
     id: str
     email: str
@@ -306,6 +310,47 @@ async def delete_user(
     await db.commit()
 
     return {"message": "User deleted successfully"}
+
+
+@router.put("/users/{user_id}/password", dependencies=[Depends(require_role([UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN]))])
+async def change_user_password(
+    user_id: str,
+    password_data: PasswordChangeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Cambia password di un utente (solo se nella propria gerarchia)"""
+
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Verifica che l'utente sia accessibile nella gerarchia
+    can_access = await HierarchyService.can_access_user(db, current_user, user_id)
+    if not can_access:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to change this user's password"
+        )
+
+    # Non permettere di cambiare password di utenti di pari o superiore livello
+    if user_id != current_user.id and not HierarchyService.can_manage_role(current_user.role, user.role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Cannot change password for user with role {user.role.value}"
+        )
+
+    # Validate password length
+    if len(password_data.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters"
+        )
+
+    user.hashed_password = get_password_hash(password_data.new_password)
+    await db.commit()
+
+    return {"message": "Password changed successfully"}
 
 
 # Endpoints - Permissions

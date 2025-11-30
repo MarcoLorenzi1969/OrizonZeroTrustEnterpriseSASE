@@ -83,6 +83,10 @@ class Node(Base):
     agent_installed_at = Column(DateTime)
     agent_token = Column(String(255), unique=True, nullable=True, index=True)
 
+    # SSH credentials for terminal access
+    ssh_username = Column(String(100), nullable=True)
+    ssh_password = Column(String(255), nullable=True)  # TODO: Encrypt in production
+
     # Reverse tunnel configuration
     reverse_tunnel_type = Column(
         String(20),

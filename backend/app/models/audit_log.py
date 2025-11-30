@@ -78,7 +78,7 @@ class AuditLog(Base):
     severity = Column(Enum(AuditSeverity), nullable=False, default=AuditSeverity.INFO)
     
     # Actor (who performed the action)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     user_email = Column(String(255), nullable=True)
     user_role = Column(String(50), nullable=True)
     
@@ -88,7 +88,7 @@ class AuditLog(Base):
     target_name = Column(String(255), nullable=True)
     
     # Node context (if applicable)
-    node_id = Column(UUID(as_uuid=True), ForeignKey("nodes.id"), nullable=True, index=True)
+    node_id = Column(String(36), ForeignKey("nodes.id"), nullable=True, index=True)
     
     # Request information
     ip_address = Column(INET, nullable=True)

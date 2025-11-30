@@ -1,6 +1,7 @@
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import debugService from './debugService'
+import { debugAPI, debugData } from '../utils/debugLogger'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
@@ -13,6 +14,9 @@ const api = axios.create({
   },
   timeout: 30000,
 })
+
+// Track request timing
+const requestTimings = new Map()
 
 // Request interceptor
 api.interceptors.request.use(
@@ -29,12 +33,19 @@ api.interceptors.request.use(
       _t: Date.now(),
     }
 
-    // Log API request
+    // Track request start time
+    const requestId = `${config.method}-${config.url}-${Date.now()}`
+    config._requestId = requestId
+    requestTimings.set(requestId, Date.now())
+
+    // Log API request with new debug system
+    debugAPI.request(config.method?.toUpperCase() || 'GET', config.url, config.data)
     debugService.logApiRequest(config)
 
     return config
   },
   (error) => {
+    debugAPI.error('REQUEST', '', error)
     debugService.error('API Request Error', { message: error.message, stack: error.stack })
     return Promise.reject(error)
   }
@@ -43,7 +54,24 @@ api.interceptors.request.use(
 // Response interceptor
 api.interceptors.response.use(
   (response) => {
-    // Log successful API response
+    // Calculate duration
+    const requestId = response.config._requestId
+    const startTime = requestTimings.get(requestId)
+    const duration = startTime ? Date.now() - startTime : 0
+    requestTimings.delete(requestId)
+
+    // Log successful API response with new debug system
+    debugAPI.response(
+      response.config.method?.toUpperCase() || 'GET',
+      response.config.url,
+      response.status,
+      response.data,
+      duration
+    )
+
+    // Log data details
+    debugData.received(`API: ${response.config.url}`, response.data)
+
     debugService.logApiResponse(response)
     return response
   },

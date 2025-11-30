@@ -78,7 +78,7 @@ class AccessRule(Base):
     
     # Metadata
     tags = Column(JSON, default=list)
-    rule_metadata = Column(JSON, default=dict)
+    custom_metadata = Column(JSON, default=dict)
     
     # Ownership
     node_id = Column(String(36), ForeignKey("nodes.id"), nullable=False)

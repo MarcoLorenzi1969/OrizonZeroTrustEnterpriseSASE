@@ -13,17 +13,35 @@ export const useAuthStore = create(
       login: async (email, password) => {
         try {
           const response = await api.post('/auth/login', { email, password })
-          const { access_token, user } = response.data
-          
+          const { access_token } = response.data
+
+          // Set token in API client immediately
+          api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
+
+          // Also store in localStorage for persistence
+          localStorage.setItem('access_token', access_token)
+
+          // Fetch user info from /auth/me or decode from token
+          let user = null
+          try {
+            const userResponse = await api.get('/auth/me')
+            user = userResponse.data
+          } catch (e) {
+            // Decode from token if /me fails
+            const decoded = jwtDecode(access_token)
+            user = {
+              id: decoded.sub,
+              email: decoded.email,
+              role: decoded.role,
+            }
+          }
+
           set({
             user,
             token: access_token,
             isAuthenticated: true,
           })
-          
-          // Set token in API client
-          api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
-          
+
           return { success: true }
         } catch (error) {
           return {
@@ -34,6 +52,8 @@ export const useAuthStore = create(
       },
       
       logout: () => {
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
         set({
           user: null,
           token: null,

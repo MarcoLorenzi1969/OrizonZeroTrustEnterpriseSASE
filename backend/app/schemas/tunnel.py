@@ -45,7 +45,8 @@ class TunnelResponse(TunnelBase):
     last_connected_at: Optional[datetime]
     last_heartbeat: Optional[datetime]
     created_at: datetime
-    
+    is_system: bool = False  # System tunnels cannot be deleted via API
+
     class Config:
         from_attributes = True
 
@@ -67,6 +68,7 @@ class TunnelInfo(BaseModel):
     remote_port: int
     status: str
     created_at: datetime
+    is_system: bool = False  # System tunnels cannot be deleted via API
 
 
 class TunnelStatus(BaseModel):

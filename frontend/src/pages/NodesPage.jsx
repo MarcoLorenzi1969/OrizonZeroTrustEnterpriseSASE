@@ -24,6 +24,7 @@ import {
 import api from '../services/api'
 import toast from 'react-hot-toast'
 import debugService from '../services/debugService'
+import { debugReact, debugData } from '../utils/debugLogger'
 import WebTerminal from '../components/WebTerminal'
 
 function NodesPage() {
@@ -70,14 +71,29 @@ function NodesPage() {
   const loadNodes = async () => {
     try {
       debugService.info('Nodes Page', { message: 'Loading nodes...' })
+      debugReact.render('NodesPage', 'Loading nodes from API')
       const response = await api.get('/nodes/')
       const items = response.data.nodes || response.data.items || []
       // Ensure items is always an array
-      setNodes(Array.isArray(items) ? items : [])
-      console.log('📋 [NodesPage] Nodi caricati:', items.length)
+      const safeItems = Array.isArray(items) ? items : []
+
+      // Debug data structure
+      debugData.received('NodesPage.loadNodes', {
+        rawData: response.data,
+        itemsCount: safeItems.length,
+        firstNode: safeItems[0] ? {
+          id: safeItems[0].id,
+          name: safeItems[0].name,
+          exposed_applications: safeItems[0].exposed_applications,
+          application_ports: safeItems[0].application_ports
+        } : null
+      })
+
+      setNodes(safeItems)
+      console.log('📋 [NodesPage] Nodi caricati:', safeItems.length, safeItems)
       debugService.success('Nodes Page', {
         message: 'Nodes loaded',
-        count: Array.isArray(items) ? items.length : 0
+        count: safeItems.length
       })
     } catch (error) {
       debugService.error('Nodes Page', {
@@ -388,21 +404,7 @@ function NodesPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Debug Panel - Versione Frontend */}
-      <div className="fixed bottom-4 right-4 bg-slate-800 border border-blue-500 rounded-lg p-3 text-xs z-50 max-w-sm">
-        <div className="text-blue-400 font-bold mb-2">🔧 DEBUG INFO</div>
-        <div className="text-slate-300 space-y-1">
-          <div>✅ NodesPage v1.1 - Edit Feature ATTIVO</div>
-          <div>📋 Nodi caricati: {safeNodes.length}</div>
-          <div>🔵 Funzione openEditModal: {typeof openEditModal}</div>
-          <div>🔷 NodeCard riceve onEdit: {safeNodes.length > 0 ? 'SI' : 'N/A'}</div>
-          <div className="text-yellow-400 mt-2">
-            Cerca nel console (F12) i log con 🔵 e 🔷
-          </div>
-        </div>
-      </div>
-
+    <div className="space-y-6 p-6">
       {/* Terminal Modal */}
       {selectedNode && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -809,7 +811,6 @@ function StatCard({ title, value, color }) {
 
 function NodeCard({ node, onDelete, onEdit, onOpenTerminal, onViewScripts }) {
   const isOnline = node.status === 'online'
-  const tunnelType = node.reverse_tunnel_type || 'SSH'
 
   // Get exposed apps from both exposed_applications and application_ports
   const configuredApps = node.exposed_applications || []
@@ -817,9 +818,22 @@ function NodeCard({ node, onDelete, onEdit, onOpenTerminal, onViewScripts }) {
   // Merge and deduplicate
   const exposedApps = [...new Set([...configuredApps, ...portApps])]
 
-  const handleSSHAccess = () => {
-    onOpenTerminal(node)
-  }
+  // Check which services are available
+  const hasSSL = exposedApps.includes('HTTPS') || exposedApps.includes('WEB_SERVER')
+  const hasSSH = exposedApps.includes('TERMINAL')
+  const hasRDP = exposedApps.includes('RDP')
+  const hasVNC = exposedApps.includes('VNC')
+
+  // Enhanced debug logging
+  debugReact.render('NodeCard', `Rendering: ${node.name}`, {
+    nodeId: node.id,
+    status: node.status,
+    exposed_applications: node.exposed_applications,
+    application_ports: node.application_ports,
+    mergedApps: exposedApps,
+    flags: { hasSSL, hasSSH, hasRDP, hasVNC }
+  })
+  console.log(`[NodeCard] ${node.name}: exposedApps=${JSON.stringify(exposedApps)}, hasSSL=${hasSSL}, hasSSH=${hasSSH}`)
 
   const handleEditClick = () => {
     if (onEdit) {
@@ -828,18 +842,14 @@ function NodeCard({ node, onDelete, onEdit, onOpenTerminal, onViewScripts }) {
   }
 
   const handleServiceConnect = async (service) => {
-    // Per ora apre il terminale per SSH, per altri servizi mostra info
     if (service === 'TERMINAL') {
       onOpenTerminal(node)
-    } else if (service === 'HTTPS') {
-      // Generate one-time proxy token and open in new window
+    } else if (service === 'HTTPS' || service === 'WEB_SERVER') {
       try {
         toast.loading('Generating secure access token...')
         const response = await api.post(`/nodes/${node.id}/https-proxy-token`)
         const { proxy_token } = response.data
         toast.dismiss()
-
-        // Open with short opaque token (not JWT)
         const proxyUrl = `/api/v1/nodes/${node.id}/https-proxy?t=${proxy_token}`
         window.open(proxyUrl, '_blank', 'noopener,noreferrer')
         toast.success('Opening secure HTTPS connection...')
@@ -848,161 +858,115 @@ function NodeCard({ node, onDelete, onEdit, onOpenTerminal, onViewScripts }) {
         toast.error(error.response?.data?.detail || 'Failed to generate access token')
       }
     } else {
-      // Placeholder per connessioni VNC, RDP, Web
       const ports = node.application_ports || {}
       const portInfo = ports[service] || {}
       toast(`${service} connection: Remote port ${portInfo.remote || 'N/A'}`)
     }
   }
 
-  // Icone per le applicazioni
-  const appIcons = {
-    TERMINAL: Terminal,
-    RDP: Monitor,
-    VNC: Monitor,
-    WEB_SERVER: Globe,
-    HTTPS: Lock
-  }
-
-  const appLabels = {
-    TERMINAL: 'SSH',
-    RDP: 'RDP',
-    VNC: 'VNC',
-    WEB_SERVER: 'Web',
-    HTTPS: 'HTTPS'
-  }
-
-  const appColors = {
-    TERMINAL: 'bg-green-600 hover:bg-green-700',
-    RDP: 'bg-blue-600 hover:bg-blue-700',
-    VNC: 'bg-purple-600 hover:bg-purple-700',
-    WEB_SERVER: 'bg-orange-600 hover:bg-orange-700',
-    HTTPS: 'bg-cyan-600 hover:bg-cyan-700'
-  }
-
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 hover:border-slate-600 transition-colors">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
-            isOnline ? 'bg-green-500/20' : 'bg-slate-700'
-          }`}>
-            {isOnline ? (
-              <Wifi className="w-6 h-6 text-green-500" />
-            ) : (
-              <WifiOff className="w-6 h-6 text-slate-500" />
-            )}
-          </div>
+    <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden hover:border-slate-600 transition-colors">
+      {/* Header with status indicator */}
+      <div className={`h-1 ${isOnline ? 'bg-green-500' : 'bg-slate-600'}`} />
+
+      <div className="p-5">
+        {/* Node name and info */}
+        <div className="flex items-start justify-between mb-3">
           <div>
-            <h3 className="text-white font-semibold">{node.name}</h3>
-            <p className="text-sm text-slate-400">{node.hostname || node.ip_address}</p>
+            <h3 className="text-white font-bold text-lg">{node.name}</h3>
+            <p className="text-sm text-slate-400">
+              {node.private_ip || node.public_ip || 'No IP'} • {node.node_type || 'linux'}
+            </p>
+          </div>
+          <div className={`px-2 py-1 rounded text-xs font-medium ${
+            isOnline ? 'bg-green-500/20 text-green-400' : 'bg-slate-600 text-slate-400'
+          }`}>
+            {isOnline ? 'Online' : 'Offline'}
           </div>
         </div>
-        <div className="flex gap-1">
-          <button
-            onClick={() => onViewScripts && onViewScripts(node)}
-            className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
-            title="View installation scripts"
-          >
-            <FileCode className="w-4 h-4 text-slate-400" />
-          </button>
-          <button
-            onClick={handleEditClick}
-            className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
-            title="Edit node"
-          >
-            <Edit2 className="w-4 h-4 text-blue-400" />
-          </button>
+
+        {/* Service Flags */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {hasSSL && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/20 border border-cyan-500/50 rounded-lg text-cyan-400 text-sm font-medium">
+              <Lock className="w-3.5 h-3.5" />
+              SSL
+            </span>
+          )}
+          {hasSSH && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 border border-green-500/50 rounded-lg text-green-400 text-sm font-medium">
+              <Terminal className="w-3.5 h-3.5" />
+              SSH
+            </span>
+          )}
+          {hasRDP && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/20 border border-blue-500/50 rounded-lg text-blue-400 text-sm font-medium">
+              <Monitor className="w-3.5 h-3.5" />
+              RDP
+            </span>
+          )}
+          {hasVNC && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-500/20 border border-purple-500/50 rounded-lg text-purple-400 text-sm font-medium">
+              <Monitor className="w-3.5 h-3.5" />
+              VNC
+            </span>
+          )}
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-2">
+          {isOnline && hasSSH && (
+            <button
+              onClick={() => handleServiceConnect('TERMINAL')}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              <Terminal className="w-4 h-4" />
+              Terminal
+            </button>
+          )}
+          {isOnline && hasSSL && (
+            <button
+              onClick={() => handleServiceConnect('HTTPS')}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              <Globe className="w-4 h-4" />
+              Web
+            </button>
+          )}
+          {!isOnline && (
+            <div className="flex-1 text-center py-2 text-sm text-slate-500">
+              Node offline
+            </div>
+          )}
+        </div>
+
+        {/* Bottom actions */}
+        <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-700">
+          <div className="flex gap-1">
+            <button
+              onClick={() => onViewScripts && onViewScripts(node)}
+              className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+              title="View installation scripts"
+            >
+              <FileCode className="w-4 h-4 text-slate-400" />
+            </button>
+            <button
+              onClick={handleEditClick}
+              className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+              title="Edit node"
+            >
+              <Edit2 className="w-4 h-4 text-blue-400" />
+            </button>
+          </div>
           <button
             onClick={() => onDelete(node.id)}
-            className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+            className="p-2 hover:bg-red-500/20 rounded-lg transition-colors"
             title="Delete node"
           >
             <Trash2 className="w-4 h-4 text-red-400" />
           </button>
         </div>
       </div>
-
-      {/* Node Info */}
-      <div className="space-y-2 mb-4">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-400">Status</span>
-          <span className={`font-medium ${isOnline ? 'text-green-400' : 'text-slate-500'}`}>
-            {isOnline ? 'Online' : 'Offline'}
-          </span>
-        </div>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-400">Tunnel</span>
-          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-            tunnelType === 'SSH' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'
-          }`}>
-            {tunnelType}
-          </span>
-        </div>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-400">OS</span>
-          <span className="text-white capitalize">{node.node_type || 'linux'}</span>
-        </div>
-        {node.location && (
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-400">Location</span>
-            <span className="text-white">{node.location}</span>
-          </div>
-        )}
-      </div>
-
-      {/* Exposed Applications */}
-      {exposedApps.length > 0 && (
-        <div className="mb-4">
-          <p className="text-xs text-slate-400 mb-2">Exposed Services</p>
-          <div className="flex flex-wrap gap-1">
-            {exposedApps.map((app) => {
-              const IconComponent = appIcons[app] || Server
-              return (
-                <span
-                  key={app}
-                  className="inline-flex items-center gap-1 px-2 py-1 bg-slate-700/50 rounded text-xs text-slate-300"
-                >
-                  <IconComponent className="w-3 h-3" />
-                  {appLabels[app] || app}
-                </span>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Action Buttons */}
-      {isOnline && exposedApps.length > 0 ? (
-        <div className="grid grid-cols-2 gap-2">
-          {exposedApps.map((app) => {
-            const IconComponent = appIcons[app] || Server
-            return (
-              <button
-                key={app}
-                onClick={() => handleServiceConnect(app)}
-                className={`flex items-center justify-center gap-1.5 px-3 py-2 text-white text-sm rounded-lg transition-colors ${appColors[app] || 'bg-slate-600 hover:bg-slate-500'}`}
-              >
-                <IconComponent className="w-4 h-4" />
-                {appLabels[app] || app}
-              </button>
-            )
-          })}
-        </div>
-      ) : isOnline ? (
-        <button
-          onClick={handleSSHAccess}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-        >
-          <Terminal className="w-4 h-4" />
-          SSH Access
-        </button>
-      ) : (
-        <div className="text-center py-2 text-sm text-slate-500">
-          Node offline
-        </div>
-      )}
     </div>
   )
 }
@@ -1124,4 +1088,4 @@ function ScriptDownloadCard({ osType, icon: Icon, label, description, node, onDo
 }
 
 export default NodesPage
-// Build $(date +%s)
+// Build v2.0 - Node cards with SSL/SSH/RDP/VNC flags - 20251129

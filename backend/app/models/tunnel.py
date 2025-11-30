@@ -79,7 +79,7 @@ class Tunnel(Base):
     
     # Metadata
     tags = Column(JSON, default=list)
-    tunnel_metadata = Column(JSON, default=dict)
+    custom_metadata = Column(JSON, default=dict)
     
     # Ownership
     node_id = Column(String(36), ForeignKey("nodes.id"), nullable=False)
@@ -87,7 +87,10 @@ class Tunnel(Base):
     
     owner_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     owner = relationship("User", back_populates="tunnels")
-    
+
+    # System tunnel flag - protected from deletion via API
+    is_system = Column(Boolean, default=False, nullable=False)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

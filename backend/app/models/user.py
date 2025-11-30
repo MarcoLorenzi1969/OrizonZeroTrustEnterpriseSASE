@@ -85,6 +85,7 @@ class User(Base):
     # Relationships
     nodes = relationship("Node", back_populates="owner", cascade="all, delete-orphan")
     tunnels = relationship("Tunnel", back_populates="owner", cascade="all, delete-orphan")
+    audit_logs = relationship("AuditLog", back_populates="user")
     
     def __repr__(self):
         return f"<User {self.username} ({self.role})>"

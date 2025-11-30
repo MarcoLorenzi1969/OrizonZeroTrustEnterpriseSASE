@@ -1,20 +1,23 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Activity, Wifi, WifiOff, Server, MonitorPlay, Link, Link2Off, RefreshCw, AlertCircle, CheckCircle2, Copy, Check } from 'lucide-react'
+import { Activity, Wifi, WifiOff, Server, MonitorPlay, Link, Link2Off, RefreshCw, AlertCircle, CheckCircle2, Copy, Check, Terminal, Lock, Globe, Shield, ShieldAlert, ShieldCheck, Heart, HeartPulse, Zap } from 'lucide-react'
 import api from '../services/api'
 import { toast } from 'react-hot-toast'
+import { debugData } from '../utils/debugLogger'
 
 const TunnelsDashboard = () => {
   const [dashboardData, setDashboardData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [keepAliveStatus, setKeepAliveStatus] = useState({})
   const navigate = useNavigate()
 
   const fetchDashboard = async () => {
     try {
       setLoading(true)
       const response = await api.get('/tunnels/dashboard')
+      debugData.received('TunnelsDashboard', response.data)
       setDashboardData(response.data)
       setLastUpdate(new Date())
     } catch (error) {
@@ -28,8 +31,8 @@ const TunnelsDashboard = () => {
   useEffect(() => {
     fetchDashboard()
 
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchDashboard, 30000)
+    // Auto-refresh every 15 seconds for keep-alive monitoring
+    const interval = setInterval(fetchDashboard, 15000)
     return () => clearInterval(interval)
   }, [])
 
@@ -44,35 +47,16 @@ const TunnelsDashboard = () => {
       const tunnelConfig = {
         timestamp: new Date().toISOString(),
         summary: dashboardData.summary,
-        nodes: dashboardData.nodes.map(node => ({
-          id: node.id,
-          name: node.name,
-          type: node.node_type,
-          status: node.status,
-          ip_address: node.ip_address,
-          websocket_connected: node.websocket_connected,
-          services: node.services,
-          last_seen: node.last_seen
-        })),
-        websocket_tunnels: dashboardData.websocket_tunnels.map(tunnel => ({
+        tunnels: dashboardData.tunnels?.map(tunnel => ({
+          tunnel_id: tunnel.tunnel_id,
+          node_id: tunnel.node_id,
           node_name: tunnel.node_name,
-          node_ip: tunnel.node_ip,
-          node_type: tunnel.node_type,
-          protocol: tunnel.protocol,
-          endpoint: tunnel.endpoint,
-          status: tunnel.status,
-          last_heartbeat: tunnel.last_heartbeat
-        })),
-        ssh_tunnels: dashboardData.ssh_tunnels.map(tunnel => ({
-          node_name: tunnel.node_name,
-          protocol: tunnel.protocol,
-          tunnel_port: tunnel.tunnel_port,
+          application: tunnel.application,
           local_port: tunnel.local_port,
-          guacamole_server: tunnel.guacamole_server,
-          guacamole_server_name: tunnel.guacamole_server_name,
-          connection_name: tunnel.connection_name,
-          status: tunnel.status
-        }))
+          remote_port: tunnel.remote_port,
+          status: tunnel.status,
+          connected_at: tunnel.connected_at
+        })) || []
       }
 
       // Copy to clipboard
@@ -100,275 +84,279 @@ const TunnelsDashboard = () => {
     )
   }
 
-  const { nodes, websocket_tunnels, ssh_tunnels, summary, timestamp } = dashboardData || {}
+  // Use the actual API structure: summary + system_tunnels + tunnels array
+  const { summary, system_tunnels, tunnels } = dashboardData || {}
+
+  // Group tunnels by type for display
+  const terminalTunnels = tunnels?.filter(t => t.application === 'TERMINAL') || []
+  const httpsTunnels = tunnels?.filter(t => t.application === 'HTTPS') || []
+  const otherTunnels = tunnels?.filter(t => !['TERMINAL', 'HTTPS'].includes(t.application)) || []
+
+  // Calculate time since last heartbeat for keep-alive indicator
+  const getTimeSinceHeartbeat = (lastHeartbeat) => {
+    if (!lastHeartbeat) return null
+    const diff = Date.now() - new Date(lastHeartbeat).getTime()
+    const seconds = Math.floor(diff / 1000)
+    if (seconds < 60) return `${seconds}s ago`
+    const minutes = Math.floor(seconds / 60)
+    if (minutes < 60) return `${minutes}m ago`
+    const hours = Math.floor(minutes / 60)
+    return `${hours}h ago`
+  }
+
+  // Get icon for tunnel type
+  const getTunnelIcon = (application) => {
+    switch (application) {
+      case 'TERMINAL': return <Terminal className="w-4 h-4 text-green-400" />
+      case 'HTTPS': return <Lock className="w-4 h-4 text-cyan-400" />
+      default: return <Globe className="w-4 h-4 text-purple-400" />
+    }
+  }
+
+  // Get color for tunnel type
+  const getTunnelColor = (application) => {
+    switch (application) {
+      case 'TERMINAL': return 'bg-green-500/20 text-green-400 border-green-500/50'
+      case 'HTTPS': return 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50'
+      default: return 'bg-purple-500/20 text-purple-400 border-purple-500/50'
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-6">
+    <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-              Tunnels & Connections Dashboard
-            </h1>
-            <p className="text-slate-400 mt-2">
-              Monitor all WebSocket and SSH tunnels across the infrastructure
-            </p>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={copyToClipboard}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                copied
-                  ? 'bg-green-600 hover:bg-green-500'
-                  : 'bg-blue-600 hover:bg-blue-500'
-              }`}
-            >
-              {copied ? (
-                <>
-                  <Check className="w-4 h-4" />
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4" />
-                  Copy JSON
-                </>
-              )}
-            </button>
-            <button
-              onClick={fetchDashboard}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
-          </div>
-        </div>
-
-        {/* Last Update Time */}
-        {lastUpdate && (
-          <p className="text-xs text-slate-500 mt-2">
-            Last updated: {lastUpdate.toLocaleTimeString()}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white mb-2">Tunnels & Connections</h1>
+          <p className="text-slate-400">
+            Monitor all active reverse tunnels across the infrastructure
           </p>
-        )}
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={copyToClipboard}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+              copied
+                ? 'bg-green-600 hover:bg-green-500'
+                : 'bg-slate-700 hover:bg-slate-600'
+            } text-white`}
+          >
+            {copied ? (
+              <>
+                <Check className="w-4 h-4" />
+                Copied!
+              </>
+            ) : (
+              <>
+                <Copy className="w-4 h-4" />
+                Export
+              </>
+            )}
+          </button>
+          <button
+            onClick={fetchDashboard}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
+      {/* Last Update Time */}
+      {lastUpdate && (
+        <p className="text-xs text-slate-500">
+          Last updated: {lastUpdate.toLocaleTimeString()}
+        </p>
+      )}
+
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-slate-400 text-sm">Total Nodes</p>
-              <p className="text-3xl font-bold text-white mt-1">{summary?.total_nodes || 0}</p>
+              <p className="text-2xl font-bold text-white mt-1">{summary?.total_nodes || 0}</p>
             </div>
-            <Server className="w-10 h-10 text-blue-400" />
+            <Server className="w-8 h-8 text-blue-400" />
           </div>
         </div>
 
-        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-slate-400 text-sm">Online Nodes</p>
-              <p className="text-3xl font-bold text-green-400 mt-1">{summary?.online_nodes || 0}</p>
+              <p className="text-2xl font-bold text-green-400 mt-1">{summary?.online_nodes || 0}</p>
             </div>
-            <CheckCircle2 className="w-10 h-10 text-green-400" />
+            <CheckCircle2 className="w-8 h-8 text-green-400" />
           </div>
         </div>
 
-        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
-          <div className="flex items-center justify-between">
+        {/* System Tunnels Card - highlighted */}
+        <div className="bg-gradient-to-br from-amber-900/30 to-orange-900/30 border border-amber-500/50 rounded-xl p-5 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-amber-500/10 rounded-full -mr-10 -mt-10" />
+          <div className="flex items-center justify-between relative z-10">
             <div>
-              <p className="text-slate-400 text-sm">WebSocket Active</p>
-              <p className="text-3xl font-bold text-cyan-400 mt-1">{summary?.websocket_active || 0}</p>
-            </div>
-            <Wifi className="w-10 h-10 text-cyan-400" />
-          </div>
-        </div>
-
-        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-slate-400 text-sm">SSH Tunnels</p>
-              <p className="text-3xl font-bold text-purple-400 mt-1">{summary?.ssh_tunnels_configured || 0}</p>
-            </div>
-            <Link className="w-10 h-10 text-purple-400" />
-          </div>
-        </div>
-      </div>
-
-      {/* Nodes Grid */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-          <Server className="w-6 h-6 text-blue-400" />
-          Registered Nodes
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {nodes?.map((node) => (
-            <div
-              key={node.id}
-              className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6 hover:border-blue-500/50 transition-colors"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-white mb-1">{node.name}</h3>
-                  <p className="text-sm text-slate-400">{node.description}</p>
-                </div>
-                <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-                  node.status === 'online' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                }`}>
-                  {node.status}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="text-slate-500">Type:</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                    node.node_type === 'hub' ? 'bg-blue-500/20 text-blue-400' : 'bg-cyan-500/20 text-cyan-400'
-                  }`}>
-                    {node.node_type}
+              <p className="text-amber-300 text-sm font-medium">System Tunnels</p>
+              <div className="flex items-baseline gap-2 mt-1">
+                <p className="text-2xl font-bold text-amber-400">{summary?.system_tunnels || 0}</p>
+                {summary?.system_tunnels_healthy > 0 && (
+                  <span className="text-xs text-green-400 flex items-center gap-1">
+                    <HeartPulse className="w-3 h-3" />
+                    {summary?.system_tunnels_healthy} live
                   </span>
-                </div>
-
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="text-slate-500">IP:</span>
-                  <span className="text-slate-300 font-mono text-xs">{node.ip_address}</span>
-                </div>
-
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="text-slate-500">WebSocket:</span>
-                  {node.websocket_connected ? (
-                    <div className="flex items-center gap-1 text-green-400">
-                      <Wifi className="w-4 h-4" />
-                      <span className="text-xs">Connected</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1 text-red-400">
-                      <WifiOff className="w-4 h-4" />
-                      <span className="text-xs">Disconnected</span>
-                    </div>
-                  )}
-                </div>
-
-                {node.services && node.services.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-slate-700">
-                    <p className="text-xs text-slate-500 mb-2">Services:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {node.services.map((service, idx) => (
-                        <div
-                          key={idx}
-                          className="px-2 py-1 bg-slate-700/50 rounded text-xs text-slate-300"
-                        >
-                          {service.protocol || service.type}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {node.last_seen && (
-                  <div className="text-xs text-slate-500 mt-2">
-                    Last seen: {new Date(node.last_seen).toLocaleString()}
-                  </div>
                 )}
               </div>
+              {summary?.system_tunnels_unhealthy > 0 && (
+                <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  {summary?.system_tunnels_unhealthy} need attention
+                </p>
+              )}
             </div>
-          ))}
+            <Shield className="w-8 h-8 text-amber-400" />
+          </div>
+        </div>
+
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-slate-400 text-sm">App Tunnels</p>
+              <p className="text-2xl font-bold text-cyan-400 mt-1">{summary?.application_tunnels || tunnels?.length || 0}</p>
+            </div>
+            <Activity className="w-8 h-8 text-cyan-400" />
+          </div>
+        </div>
+
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-slate-400 text-sm">Offline Nodes</p>
+              <p className="text-2xl font-bold text-slate-400 mt-1">{summary?.offline_nodes || 0}</p>
+            </div>
+            <WifiOff className="w-8 h-8 text-slate-500" />
+          </div>
         </div>
       </div>
 
-      {/* WebSocket Tunnels */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-          <Wifi className="w-6 h-6 text-cyan-400" />
-          WebSocket Tunnels
-          <span className="text-sm font-normal text-slate-400">
-            ({websocket_tunnels?.length || 0} active)
+      {/* System Tunnels Section - Distinctive Amber/Gold styling */}
+      <div>
+        <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-white">
+          <Shield className="w-5 h-5 text-amber-400" />
+          <span className="text-amber-400">System Tunnels</span>
+          <span className="text-sm font-normal text-amber-300/70">
+            (Keep-Alive Protected)
+          </span>
+          <span className="ml-auto text-xs font-normal text-slate-400 flex items-center gap-1">
+            <RefreshCw className="w-3 h-3" />
+            Auto-refresh: 15s
           </span>
         </h2>
 
-        {websocket_tunnels && websocket_tunnels.length > 0 ? (
-          <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-slate-700/50">
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    Node
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    IP Address
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    Type
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    Protocol
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    Last Heartbeat
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700">
-                {websocket_tunnels.map((tunnel) => (
-                  <tr key={tunnel.node_id} className="hover:bg-slate-700/30">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-white">{tunnel.node_name}</div>
-                      <div className="text-xs text-slate-400 font-mono">{tunnel.node_id.substring(0, 8)}...</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-slate-300 font-mono">{tunnel.node_ip}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        tunnel.node_type === 'hub' ? 'bg-blue-500/20 text-blue-400' : 'bg-cyan-500/20 text-cyan-400'
-                      }`}>
-                        {tunnel.node_type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-slate-300">{tunnel.protocol}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <Activity className="w-4 h-4 text-green-400 animate-pulse" />
-                        <span className="text-sm text-green-400">{tunnel.status}</span>
+        {system_tunnels && system_tunnels.length > 0 ? (
+          <div className="bg-gradient-to-br from-amber-950/40 to-orange-950/30 border border-amber-500/30 rounded-xl overflow-hidden">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+              {system_tunnels.map((tunnel) => (
+                <div
+                  key={tunnel.tunnel_id}
+                  className={`relative p-4 rounded-lg border transition-all ${
+                    tunnel.health_status === 'healthy'
+                      ? 'bg-amber-900/20 border-amber-500/40 hover:border-amber-400/60'
+                      : 'bg-red-900/20 border-red-500/40 hover:border-red-400/60 animate-pulse'
+                  }`}
+                >
+                  {/* Keep-Alive indicator */}
+                  <div className="absolute top-3 right-3">
+                    {tunnel.health_status === 'healthy' ? (
+                      <div className="flex items-center gap-1.5" title="Keep-Alive Active">
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                        </span>
+                        <HeartPulse className="w-4 h-4 text-green-400" />
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-xs text-slate-400">
-                        {tunnel.last_heartbeat ? new Date(tunnel.last_heartbeat).toLocaleTimeString() : 'N/A'}
+                    ) : (
+                      <div className="flex items-center gap-1.5" title="Keep-Alive Failed - Needs Restart">
+                        <ShieldAlert className="w-5 h-5 text-red-400 animate-bounce" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Node info */}
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="p-2 rounded-lg bg-amber-500/20">
+                      <Zap className="w-5 h-5 text-amber-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-white font-semibold truncate">{tunnel.node_name}</h3>
+                      <p className="text-xs text-amber-300/70 truncate">{tunnel.name}</p>
+                    </div>
+                  </div>
+
+                  {/* Tunnel details */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-400">Hub:</span>
+                      <span className="text-amber-300 font-mono text-xs">{tunnel.hub_host}:{tunnel.hub_port}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-400">Ports:</span>
+                      <span className="text-white font-mono">
+                        <span className="text-slate-400">{tunnel.local_port}</span>
+                        <span className="mx-1 text-amber-400">→</span>
+                        <span className="text-amber-400 font-bold">{tunnel.remote_port}</span>
                       </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-400">Last Heartbeat:</span>
+                      <span className={`text-xs ${tunnel.health_status === 'healthy' ? 'text-green-400' : 'text-red-400'}`}>
+                        {getTimeSinceHeartbeat(tunnel.last_heartbeat) || 'Never'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Status badge */}
+                  <div className="mt-3 pt-3 border-t border-amber-500/20">
+                    <div className="flex items-center justify-between">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        tunnel.health_status === 'healthy'
+                          ? 'bg-green-500/20 text-green-400'
+                          : 'bg-red-500/20 text-red-400'
+                      }`}>
+                        {tunnel.health_status === 'healthy' ? 'HEALTHY' : 'NEEDS RESTART'}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        Port {tunnel.remote_port}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
-          <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-8 text-center">
-            <WifiOff className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-            <p className="text-slate-400">No active WebSocket tunnels</p>
+          <div className="bg-gradient-to-br from-amber-950/30 to-orange-950/20 border border-amber-500/30 rounded-xl p-8 text-center">
+            <Shield className="w-12 h-12 text-amber-500/50 mx-auto mb-4" />
+            <p className="text-amber-300/70">No system tunnels configured</p>
+            <p className="text-xs text-slate-500 mt-2">
+              System tunnels are created automatically when nodes are added
+            </p>
           </div>
         )}
       </div>
 
-      {/* SSH Tunnels */}
+      {/* Application Tunnels Table */}
       <div>
-        <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-          <Link className="w-6 h-6 text-purple-400" />
-          SSH Reverse Tunnels
+        <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-white">
+          <Activity className="w-5 h-5 text-cyan-400" />
+          Application Tunnels
           <span className="text-sm font-normal text-slate-400">
-            ({ssh_tunnels?.length || 0} configured)
+            ({tunnels?.length || 0} active)
           </span>
         </h2>
 
-        {ssh_tunnels && ssh_tunnels.length > 0 ? (
-          <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl overflow-hidden">
+        {tunnels && tunnels.length > 0 ? (
+          <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-700/50">
@@ -376,51 +364,63 @@ const TunnelsDashboard = () => {
                     Node
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    Protocol
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    Tunnel Port
+                    Service
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
                     Local Port
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    Guacamole Server
+                    Remote Port
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
                     Status
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                    Connected At
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700">
-                {ssh_tunnels.map((tunnel, idx) => (
-                  <tr key={idx} className="hover:bg-slate-700/30">
+                {tunnels.map((tunnel) => (
+                  <tr key={tunnel.tunnel_id} className="hover:bg-slate-700/30">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-white">{tunnel.node_name}</div>
-                      <div className="text-xs text-slate-400">{tunnel.connection_name}</div>
+                      <div className="text-xs text-slate-400 font-mono">{tunnel.node_id.substring(0, 8)}...</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        tunnel.protocol === 'SSH' ? 'bg-green-500/20 text-green-400' : 'bg-purple-500/20 text-purple-400'
-                      }`}>
-                        {tunnel.protocol}
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border ${getTunnelColor(tunnel.application)}`}>
+                        {getTunnelIcon(tunnel.application)}
+                        {tunnel.application}
                       </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-slate-300 font-mono">{tunnel.tunnel_port}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-sm text-slate-300 font-mono">{tunnel.local_port}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-slate-300 font-mono">{tunnel.guacamole_server}</div>
-                      <div className="text-xs text-slate-500">{tunnel.guacamole_server_name}</div>
+                      <span className="text-sm text-white font-mono font-bold">{tunnel.remote_port}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-green-400" />
-                        <span className="text-sm text-green-400">{tunnel.status}</span>
+                        {tunnel.status === 'active' ? (
+                          <>
+                            <span className="relative flex h-3 w-3">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                            </span>
+                            <span className="text-sm text-green-400">Active</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="w-3 h-3 rounded-full bg-slate-500"></span>
+                            <span className="text-sm text-slate-400">{tunnel.status}</span>
+                          </>
+                        )}
                       </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-xs text-slate-400">
+                        {tunnel.connected_at ? new Date(tunnel.connected_at).toLocaleString() : 'N/A'}
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -428,12 +428,90 @@ const TunnelsDashboard = () => {
             </table>
           </div>
         ) : (
-          <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-8 text-center">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-8 text-center">
             <Link2Off className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-            <p className="text-slate-400">No SSH reverse tunnels configured</p>
+            <p className="text-slate-400">No active tunnels</p>
             <p className="text-xs text-slate-500 mt-2">
-              SSH tunnels are used for NAT traversal to enable remote access
+              Tunnels are established when edge nodes connect to the hub
             </p>
+          </div>
+        )}
+      </div>
+
+      {/* Tunnels by Node - Card View */}
+      <div>
+        <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-white">
+          <Server className="w-5 h-5 text-blue-400" />
+          Tunnels by Node
+        </h2>
+
+        {tunnels && tunnels.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Group tunnels by node */}
+            {Object.entries(
+              tunnels.reduce((acc, tunnel) => {
+                if (!acc[tunnel.node_id]) {
+                  acc[tunnel.node_id] = {
+                    node_name: tunnel.node_name,
+                    node_id: tunnel.node_id,
+                    tunnels: []
+                  }
+                }
+                acc[tunnel.node_id].tunnels.push(tunnel)
+                return acc
+              }, {})
+            ).map(([nodeId, nodeData]) => (
+              <div
+                key={nodeId}
+                className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden hover:border-slate-600 transition-colors"
+              >
+                {/* Node Header */}
+                <div className="h-1 bg-gradient-to-r from-blue-500 to-cyan-500" />
+                <div className="p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-white">{nodeData.node_name}</h3>
+                      <p className="text-xs text-slate-400 font-mono">{nodeId.substring(0, 12)}...</p>
+                    </div>
+                    <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded-full">
+                      {nodeData.tunnels.length} tunnel{nodeData.tunnels.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+
+                  {/* Tunnels List */}
+                  <div className="space-y-2">
+                    {nodeData.tunnels.map((tunnel) => (
+                      <div
+                        key={tunnel.tunnel_id}
+                        className="flex items-center justify-between p-3 bg-slate-700/50 rounded-lg"
+                      >
+                        <div className="flex items-center gap-3">
+                          {getTunnelIcon(tunnel.application)}
+                          <div>
+                            <span className="text-white font-medium">{tunnel.application}</span>
+                            <p className="text-xs text-slate-400">
+                              Port {tunnel.local_port} → {tunnel.remote_port}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                          </span>
+                          <span className="text-xs text-green-400">Active</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-8 text-center">
+            <Server className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+            <p className="text-slate-400">No nodes with active tunnels</p>
           </div>
         )}
       </div>

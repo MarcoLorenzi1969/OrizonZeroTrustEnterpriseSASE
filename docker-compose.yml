@@ -70,8 +70,7 @@ services:
       dockerfile: Dockerfile
     container_name: orizon-ssh-tunnel
     restart: unless-stopped
-    ports:
-      - "2222:2222"  # SSH Reverse Tunnel Port
+    network_mode: host
     volumes:
       - ssh_authorized_keys:/etc/ssh/authorized_keys
     healthcheck:
@@ -79,8 +78,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    networks:
-      - orizon-network
 
   # Backend API
   backend:
@@ -96,7 +93,7 @@ services:
       REDIS_HOST: redis
       MONGODB_URL: mongodb://mongodb:27017
       SCRIPT_GENERATOR_URL: http://script-generator:3001
-      SSH_TUNNEL_HOST: ssh-tunnel
+      # SSH_TUNNEL_HOST is set in .env file (use Docker gateway IP since ssh-tunnel uses network_mode: host)
     ports:
       - "8000:8000"
     volumes:

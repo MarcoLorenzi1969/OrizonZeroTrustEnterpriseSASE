@@ -915,27 +915,39 @@ function NodeCard({ node, onDelete, onEdit, onOpenTerminal, onViewScripts }) {
 
         {/* Action Buttons */}
         <div className="flex gap-2">
-          {isOnline && hasSSH && (
+          {hasSSH && (
             <button
-              onClick={() => handleServiceConnect('TERMINAL')}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
+              onClick={() => isOnline && handleServiceConnect('TERMINAL')}
+              disabled={!isOnline}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-white text-sm font-medium rounded-lg transition-colors ${
+                isOnline
+                  ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
+                  : 'bg-green-600/40 cursor-not-allowed'
+              }`}
+              title={isOnline ? 'Open terminal' : 'Node offline - install agent first'}
             >
               <Terminal className="w-4 h-4" />
               Terminal
             </button>
           )}
-          {isOnline && hasSSL && (
+          {hasSSL && (
             <button
-              onClick={() => handleServiceConnect('HTTPS')}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition-colors"
+              onClick={() => isOnline && handleServiceConnect('HTTPS')}
+              disabled={!isOnline}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-white text-sm font-medium rounded-lg transition-colors ${
+                isOnline
+                  ? 'bg-cyan-600 hover:bg-cyan-700 cursor-pointer'
+                  : 'bg-cyan-600/40 cursor-not-allowed'
+              }`}
+              title={isOnline ? 'Open web interface' : 'Node offline - install agent first'}
             >
               <Globe className="w-4 h-4" />
               Web
             </button>
           )}
-          {!isOnline && (
+          {!hasSSH && !hasSSL && (
             <div className="flex-1 text-center py-2 text-sm text-slate-500">
-              Node offline
+              No services configured
             </div>
           )}
         </div>

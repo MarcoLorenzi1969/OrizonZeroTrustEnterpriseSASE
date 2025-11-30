@@ -77,6 +77,8 @@ backup_code/
 *.spec.js
 coverage/
 .nyc_output/
+htmlcov/
+.coverage
 
 # Archive files
 *.tar.gz

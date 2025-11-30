@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="10">
+    <title>{{NODE_NAME}} - Orizon Status</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        header {
+            text-align: center;
+            padding: 30px 0;
+            border-bottom: 1px solid #333;
+            margin-bottom: 30px;
+        }
+        .logo { font-size: 48px; font-weight: bold; color: #00d4ff; }
+        .subtitle { color: #888; margin-top: 10px; }
+        .node-id { font-family: monospace; font-size: 12px; color: #666; margin-top: 5px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 25px;
+            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+        }
+        .card h3 {
+            color: #00d4ff;
+            margin-bottom: 20px;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .card h3::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #00d4ff;
+            border-radius: 50%;
+        }
+        .metric { margin: 15px 0; }
+        .metric-label { color: #888; font-size: 14px; margin-bottom: 5px; }
+        .metric-value { font-size: 28px; font-weight: bold; color: #fff; }
+        .metric-unit { font-size: 14px; color: #888; margin-left: 5px; }
+        .progress-bar {
+            height: 10px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 5px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            border-radius: 5px;
+            transition: width 0.5s ease, background 0.5s ease;
+        }
+        .progress-fill.green { background: linear-gradient(90deg, #00ff88, #00d4ff); }
+        .progress-fill.yellow { background: linear-gradient(90deg, #ffdd00, #ff9900); }
+        .progress-fill.red { background: linear-gradient(90deg, #ff6600, #ff0000); }
+        .status-badge {
+            display: inline-block;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .status-online { background: rgba(0,255,136,0.2); color: #00ff88; border: 1px solid #00ff88; }
+        .status-offline { background: rgba(255,68,68,0.2); color: #ff4444; border: 1px solid #ff4444; }
+        .tunnel-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .tunnel-item:last-child { border-bottom: none; }
+        .tunnel-name { font-size: 14px; }
+        .tunnel-port { font-family: monospace; color: #888; font-size: 12px; }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .info-row:last-child { border-bottom: none; }
+        .info-label { color: #888; }
+        .info-value { color: #fff; font-weight: 500; }
+        footer {
+            text-align: center;
+            padding: 30px 0;
+            color: #666;
+            margin-top: 30px;
+            border-top: 1px solid #333;
+        }
+        .platform-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .platform-windows { background: #0078d4; color: #fff; }
+        .platform-linux { background: #fcc624; color: #000; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .loading { animation: pulse 1.5s infinite; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">ORIZON</div>
+            <p class="subtitle">
+                Zero Trust Connect - <span id="node-name">{{NODE_NAME}}</span>
+                <span class="platform-badge platform-windows" id="platform-badge">WINDOWS</span>
+            </p>
+            <p class="node-id">Node ID: {{NODE_ID}}</p>
+        </header>
+
+        <div class="grid">
+            <!-- System Information -->
+            <div class="card">
+                <h3>System Information</h3>
+                <div class="info-row">
+                    <span class="info-label">Hostname</span>
+                    <span class="info-value" id="hostname">Loading...</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Operating System</span>
+                    <span class="info-value" id="os">Loading...</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Uptime</span>
+                    <span class="info-value" id="uptime">Loading...</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">IP Address</span>
+                    <span class="info-value" id="ip-address">Loading...</span>
+                </div>
+            </div>
+
+            <!-- CPU Usage -->
+            <div class="card">
+                <h3>CPU Usage</h3>
+                <div class="metric">
+                    <div class="metric-value">
+                        <span id="cpu-value" class="loading">--</span>
+                        <span class="metric-unit">%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill green" id="cpu-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Memory Usage -->
+            <div class="card">
+                <h3>Memory Usage</h3>
+                <div class="metric">
+                    <div class="metric-value">
+                        <span id="mem-value" class="loading">--</span>
+                        <span class="metric-unit">%</span>
+                    </div>
+                    <div class="metric-label" id="mem-detail">Loading...</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill green" id="mem-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Disk Usage -->
+            <div class="card">
+                <h3>Disk Usage</h3>
+                <div class="metric">
+                    <div class="metric-value">
+                        <span id="disk-value" class="loading">--</span>
+                        <span class="metric-unit">%</span>
+                    </div>
+                    <div class="metric-label" id="disk-detail">Loading...</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill green" id="disk-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GPU Information (if available) -->
+            <div class="card" id="gpu-card" style="display: none;">
+                <h3>GPU Information</h3>
+                <div class="info-row">
+                    <span class="info-label">Model</span>
+                    <span class="info-value" id="gpu-model">--</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Memory</span>
+                    <span class="info-value" id="gpu-memory">--</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Usage</span>
+                    <span class="info-value" id="gpu-usage">--</span>
+                </div>
+            </div>
+
+            <!-- Tunnel Status -->
+            <div class="card">
+                <h3>Tunnel Status</h3>
+                <div class="tunnel-item">
+                    <div>
+                        <div class="tunnel-name">System Tunnel</div>
+                        <div class="tunnel-port">Port: {{SYSTEM_TUNNEL_PORT}}</div>
+                    </div>
+                    <span class="status-badge loading" id="tunnel-system">CHECKING</span>
+                </div>
+                <div class="tunnel-item">
+                    <div>
+                        <div class="tunnel-name">Terminal Tunnel</div>
+                        <div class="tunnel-port">Port: {{TERMINAL_TUNNEL_PORT}}</div>
+                    </div>
+                    <span class="status-badge loading" id="tunnel-terminal">CHECKING</span>
+                </div>
+            </div>
+
+            <!-- Services Status -->
+            <div class="card">
+                <h3>Services Status</h3>
+                <div class="tunnel-item">
+                    <div class="tunnel-name">SSH Server</div>
+                    <span class="status-badge loading" id="service-ssh">CHECKING</span>
+                </div>
+                <div class="tunnel-item">
+                    <div class="tunnel-name">nginx (Status Page)</div>
+                    <span class="status-badge loading" id="service-nginx">CHECKING</span>
+                </div>
+                <div class="tunnel-item">
+                    <div class="tunnel-name">Metrics Collector</div>
+                    <span class="status-badge loading" id="service-metrics">CHECKING</span>
+                </div>
+                <div class="tunnel-item">
+                    <div class="tunnel-name">Watchdog</div>
+                    <span class="status-badge loading" id="service-watchdog">CHECKING</span>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Orizon Zero Trust Connect v2.0.0</p>
+            <p>Last Update: <span id="last-update">--</span></p>
+            <p style="margin-top: 10px; font-size: 12px;">
+                Hub: {{HUB_HOST}} | Auto-refresh: 10s
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        // Get metrics URL - use proxy path if we're being proxied, otherwise local
+        function getMetricsUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const proxyToken = urlParams.get('t');
+
+            // If we have a proxy token, we're being accessed via the Hub proxy
+            if (proxyToken) {
+                // Extract current path and build proxy URL for /api/metrics
+                // URL format: /api/v1/nodes/{node_id}/https-proxy?t=TOKEN
+                // Need to change to: /api/v1/nodes/{node_id}/https-proxy/api/metrics?t=TOKEN
+                const currentPath = window.location.pathname;
+                const metricsPath = currentPath.replace(/\/?$/, '/api/metrics');
+                return `${metricsPath}?t=${proxyToken}`;
+            }
+
+            // Local access - use direct /api/metrics
+            return '/api/metrics';
+        }
+
+        async function updateMetrics() {
+            try {
+                const metricsUrl = getMetricsUrl();
+                const response = await fetch(metricsUrl);
+                if (!response.ok) throw new Error('Failed to fetch metrics');
+                const data = await response.json();
+
+                // Remove loading class from all elements
+                document.querySelectorAll('.loading').forEach(el => el.classList.remove('loading'));
+
+                // System Info
+                document.getElementById('hostname').textContent = data.hostname || 'N/A';
+                document.getElementById('os').textContent = data.os || 'N/A';
+                document.getElementById('uptime').textContent = data.uptime || 'N/A';
+                document.getElementById('ip-address').textContent = data.ip_address || 'N/A';
+
+                // Detect platform
+                const platformBadge = document.getElementById('platform-badge');
+                if (data.os && data.os.toLowerCase().includes('windows')) {
+                    platformBadge.textContent = 'WINDOWS';
+                    platformBadge.className = 'platform-badge platform-windows';
+                } else {
+                    platformBadge.textContent = 'LINUX';
+                    platformBadge.className = 'platform-badge platform-linux';
+                }
+
+                // CPU
+                updateProgress('cpu', data.cpu_usage || 0);
+
+                // Memory
+                updateProgress('mem', data.memory_usage || 0);
+                document.getElementById('mem-detail').textContent = data.memory_detail || '';
+
+                // Disk
+                updateProgress('disk', data.disk_usage || 0);
+                document.getElementById('disk-detail').textContent = data.disk_detail || '';
+
+                // GPU (if available)
+                if (data.gpu_model) {
+                    document.getElementById('gpu-card').style.display = 'block';
+                    document.getElementById('gpu-model').textContent = data.gpu_model;
+                    document.getElementById('gpu-memory').textContent = data.gpu_memory || 'N/A';
+                    document.getElementById('gpu-usage').textContent = data.gpu_usage || 'N/A';
+                }
+
+                // Tunnel Status
+                updateStatus('tunnel-system', data.tunnel_system);
+                updateStatus('tunnel-terminal', data.tunnel_terminal);
+
+                // Services Status
+                updateStatus('service-ssh', data.service_ssh !== undefined ? data.service_ssh : true);
+                updateStatus('service-nginx', data.service_nginx !== undefined ? data.service_nginx : true);
+                updateStatus('service-metrics', data.service_metrics !== undefined ? data.service_metrics : true);
+                updateStatus('service-watchdog', data.service_watchdog !== undefined ? data.service_watchdog : true);
+
+                // Last update
+                document.getElementById('last-update').textContent = data.last_update || new Date().toLocaleString();
+
+            } catch (error) {
+                console.error('Failed to update metrics:', error);
+                document.getElementById('last-update').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        function updateProgress(id, value) {
+            const bar = document.getElementById(id + '-bar');
+            const valueEl = document.getElementById(id + '-value');
+
+            value = Math.min(100, Math.max(0, parseFloat(value) || 0));
+            valueEl.textContent = value.toFixed(1);
+            bar.style.width = value + '%';
+
+            // Color based on value
+            bar.className = 'progress-fill ' + (value < 70 ? 'green' : value < 90 ? 'yellow' : 'red');
+        }
+
+        function updateStatus(id, isOnline) {
+            const el = document.getElementById(id);
+            if (isOnline) {
+                el.textContent = 'ONLINE';
+                el.className = 'status-badge status-online';
+            } else {
+                el.textContent = 'OFFLINE';
+                el.className = 'status-badge status-offline';
+            }
+        }
+
+        // Initial load
+        updateMetrics();
+
+        // Auto-refresh every 10 seconds
+        setInterval(updateMetrics, 10000);
+    </script>
+</body>
+</html>

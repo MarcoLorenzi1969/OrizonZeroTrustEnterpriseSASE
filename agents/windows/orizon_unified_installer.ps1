@@ -2,7 +2,6 @@
 <#
 .SYNOPSIS
     Orizon Zero Trust Connect - Windows Unified Installer
-    Generated: {{timestamp}}
 
 .DESCRIPTION
     Complete installation script for Windows Edge nodes including:
@@ -14,33 +13,32 @@
 
 .NOTES
     Version:        2.0.0
-    Node ID:        {{nodeId}}
-    Node Name:      {{nodeName}}
+    Author:         Orizon Team
+    Creation Date:  2025-11-30
     Platform:       Windows 10/11, Windows Server 2019/2022
 
 .EXAMPLE
-    # Run as Administrator from PowerShell
-    .\install_{{nodeName}}.ps1
+    # Run as Administrator
+    .\orizon_unified_installer.ps1
 #>
 
 #==============================================================================
-# CONFIGURATION
+# CONFIGURATION - Populated by Handlebars template
 #==============================================================================
 $Config = @{
     # Node Identity
-    NodeId              = "{{nodeId}}"
-    NodeName            = "{{nodeName}}"
-    AgentToken          = "{{agentToken}}"
+    NodeId              = "PLACEHOLDER_NODE_ID"
+    NodeName            = "PLACEHOLDER_NODE_NAME"
+    AgentToken          = "PLACEHOLDER_AGENT_TOKEN"
 
     # Hub Connection
-    HubHost             = "{{hubHost}}"
-    HubSshPort          = {{hubSshPort}}
-    ApiBaseUrl          = "{{apiBaseUrl}}"
-    TunnelType          = "{{tunnelType}}"
+    HubHost             = "PLACEHOLDER_HUB_HOST"
+    HubSshPort          = 2222
+    ApiBaseUrl          = "PLACEHOLDER_API_BASE_URL"
 
-    # Tunnel Ports
-    SystemTunnelPort    = {{systemTunnelPort}}
-    TerminalTunnelPort  = {{terminalTunnelPort}}
+    # Tunnel Ports (calculated from Node ID hash)
+    SystemTunnelPort    = 9000
+    TerminalTunnelPort  = 10000
 
     # Local Configuration
     LocalSshPort        = 22
@@ -59,7 +57,7 @@ $Config = @{
 #==============================================================================
 # LOGGING
 #==============================================================================
-$script:LogFile = $null
+$LogFile = Join-Path $Config.LogPath "install_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 
 function Write-Log {
     param(
@@ -76,11 +74,7 @@ function Write-Log {
         New-Item -ItemType Directory -Path $Config.LogPath -Force | Out-Null
     }
 
-    if (-not $script:LogFile) {
-        $script:LogFile = Join-Path $Config.LogPath "install_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
-    }
-
-    Add-Content -Path $script:LogFile -Value $logEntry -ErrorAction SilentlyContinue
+    Add-Content -Path $LogFile -Value $logEntry
 
     switch ($Level) {
         "INFO"    { Write-Host $logEntry -ForegroundColor Cyan }
@@ -170,6 +164,8 @@ function Initialize-Directories {
         if (-not (Test-Path $dir)) {
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
             Write-Log "Created: $dir" "INFO"
+        } else {
+            Write-Log "Exists: $dir" "INFO"
         }
     }
 
@@ -210,7 +206,7 @@ function Install-OpenSSH {
 
     # Configure and start SSH server
     Set-Service -Name sshd -StartupType Automatic
-    Start-Service sshd -ErrorAction SilentlyContinue
+    Start-Service sshd
 
     # Configure default shell to PowerShell
     $shellPath = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -232,10 +228,8 @@ function New-SshKeys {
     if (Test-Path $privateKeyPath) {
         Write-Log "SSH keys already exist, backing up..." "WARN"
         $backupPath = "$privateKeyPath.backup_$(Get-Date -Format 'yyyyMMddHHmmss')"
-        Move-Item $privateKeyPath $backupPath -Force
-        if (Test-Path $publicKeyPath) {
-            Move-Item $publicKeyPath "$backupPath.pub" -Force
-        }
+        Move-Item $privateKeyPath $backupPath
+        Move-Item $publicKeyPath "$backupPath.pub"
     }
 
     # Generate ed25519 key
@@ -243,8 +237,12 @@ function New-SshKeys {
     & ssh-keygen -t ed25519 -f $privateKeyPath -N '""' -C $keyComment 2>&1 | Out-Null
 
     if (Test-Path $publicKeyPath) {
-        $script:PublicKey = Get-Content $publicKeyPath
+        $publicKey = Get-Content $publicKeyPath
         Write-Log "SSH key generated: $keyComment" "SUCCESS"
+        Write-Log "Public Key: $publicKey" "INFO"
+
+        # Store public key for registration
+        $script:PublicKey = $publicKey
         return $true
     } else {
         Write-Log "Failed to generate SSH keys" "ERROR"
@@ -266,14 +264,13 @@ function Register-PublicKey {
     } | ConvertTo-Json
 
     try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $response = Invoke-RestMethod -Uri $registrationUrl -Method POST -Body $body -ContentType "application/json" -Headers @{
             "Authorization" = "Bearer $($Config.AgentToken)"
         }
         Write-Log "Public key registered with Hub" "SUCCESS"
         return $true
     } catch {
-        Write-Log "Failed to register public key: $_" "WARN"
+        Write-Log "Failed to register public key: $_" "ERROR"
         Write-Log "Attempting manual registration..." "WARN"
 
         # Write key to file for manual registration
@@ -319,8 +316,8 @@ function Install-NSSM {
         Copy-Item $nssmExe.FullName $nssmPath -Force
 
         # Cleanup
-        Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-        Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item $zipPath -Force
+        Remove-Item $extractPath -Recurse -Force
 
         Write-Log "NSSM installed: $nssmPath" "SUCCESS"
         return $true
@@ -367,7 +364,19 @@ function Install-TunnelServices {
         }
 
         # Build SSH arguments
-        $sshArgs = "-N -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o BatchMode=yes -i `"$privateKeyPath`" -p $($Config.HubSshPort) -R $($tunnel.Port):localhost:$($Config.LocalSshPort) $($Config.NodeId)@$($Config.HubHost)"
+        $sshArgs = @(
+            "-N",
+            "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveCountMax=3",
+            "-o", "ExitOnForwardFailure=yes",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=NUL",
+            "-o", "BatchMode=yes",
+            "-i", $privateKeyPath,
+            "-p", $Config.HubSshPort,
+            "-R", "$($tunnel.Port):localhost:$($Config.LocalSshPort)",
+            "$($Config.NodeId)@$($Config.HubHost)"
+        ) -join " "
 
         # Install service with NSSM
         & $nssmPath install $tunnel.Name $sshPath $sshArgs
@@ -380,14 +389,13 @@ function Install-TunnelServices {
         & $nssmPath set $tunnel.Name AppRestartDelay 5000
 
         # Start service
-        Start-Service -Name $tunnel.Name -ErrorAction SilentlyContinue
+        Start-Service -Name $tunnel.Name
 
-        Start-Sleep -Seconds 2
-        $status = Get-Service -Name $tunnel.Name -ErrorAction SilentlyContinue
+        $status = Get-Service -Name $tunnel.Name
         if ($status.Status -eq 'Running') {
-            Write-Log "$($tunnel.Name) started (Port: $($tunnel.Port))" "SUCCESS"
+            Write-Log "$($tunnel.Name) started successfully (Port: $($tunnel.Port))" "SUCCESS"
         } else {
-            Write-Log "$($tunnel.Name) configured (will start when Hub accepts key)" "WARN"
+            Write-Log "$($tunnel.Name) failed to start" "ERROR"
         }
     }
 
@@ -402,7 +410,9 @@ function Install-Nginx {
 
     $nginxExe = Join-Path $Config.NginxPath "nginx.exe"
 
-    if (-not (Test-Path $nginxExe)) {
+    if (Test-Path $nginxExe) {
+        Write-Log "nginx already installed" "INFO"
+    } else {
         $nginxUrl = "https://nginx.org/download/nginx-1.24.0.zip"
         $zipPath = Join-Path $env:TEMP "nginx.zip"
         $extractPath = Join-Path $env:TEMP "nginx-extract"
@@ -420,8 +430,8 @@ function Install-Nginx {
             Get-ChildItem -Path $nginxFolder.FullName | Move-Item -Destination $Config.NginxPath -Force
 
             # Cleanup
-            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-            Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item $zipPath -Force
+            Remove-Item $extractPath -Recurse -Force
 
             Write-Log "nginx installed: $($Config.NginxPath)" "SUCCESS"
         } catch {
@@ -436,15 +446,22 @@ function Install-Nginx {
     $keyPath = Join-Path $Config.SslPath "orizon.key"
 
     if (-not (Test-Path $certPath)) {
-        $cert = New-SelfSignedCertificate -DnsName $Config.NodeName, "localhost" -CertStoreLocation "Cert:\LocalMachine\My" -NotAfter (Get-Date).AddYears(5)
+        $opensslCmd = @"
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 `
+    -keyout "$keyPath" `
+    -out "$certPath" `
+    -subj "/C=IT/ST=Italy/L=Milan/O=Orizon/CN=$($Config.NodeName)"
+"@
+        # Use PowerShell to generate self-signed cert as fallback
+        $cert = New-SelfSignedCertificate -DnsName $Config.NodeName -CertStoreLocation "Cert:\LocalMachine\My" -NotAfter (Get-Date).AddYears(5)
+        Export-Certificate -Cert $cert -FilePath "$certPath.cer" -Type CERT
 
-        # Export certificate
-        Export-Certificate -Cert $cert -FilePath $certPath -Type CERT | Out-Null
-
-        # Export to PFX and convert to PEM
+        # Export private key
         $password = ConvertTo-SecureString -String "orizon" -Force -AsPlainText
+        Export-PfxCertificate -Cert $cert -FilePath (Join-Path $Config.SslPath "orizon.pfx") -Password $password
+
+        # Convert PFX to PEM format using certutil
         $pfxPath = Join-Path $Config.SslPath "orizon.pfx"
-        Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $password | Out-Null
 
         Write-Log "SSL certificate generated" "SUCCESS"
     }
@@ -485,20 +502,11 @@ http {
             default_type application/json;
             alias $($Config.WwwPath.Replace('\','/'))/metrics.json;
         }
-
-        location /health {
-            default_type application/json;
-            return 200 '{"status": "healthy"}';
-        }
     }
 }
 "@
 
-    $confDir = Join-Path $Config.NginxPath "conf"
-    if (-not (Test-Path $confDir)) {
-        New-Item -ItemType Directory -Path $confDir -Force | Out-Null
-    }
-    $nginxConf | Out-File -FilePath (Join-Path $confDir "nginx.conf") -Encoding UTF8 -Force
+    $nginxConf | Out-File -FilePath (Join-Path $Config.NginxPath "conf\nginx.conf") -Encoding UTF8 -Force
 
     # Install nginx as Windows Service using NSSM
     $nssmPath = Join-Path $Config.ToolsPath "nssm.exe"
@@ -515,9 +523,9 @@ http {
     & $nssmPath set $serviceName AppDirectory $Config.NginxPath
     & $nssmPath set $serviceName Start SERVICE_AUTO_START
 
-    Start-Service -Name $serviceName -ErrorAction SilentlyContinue
+    Start-Service -Name $serviceName
 
-    Write-Log "nginx service created" "SUCCESS"
+    Write-Log "nginx service created and started" "SUCCESS"
     return $true
 }
 
@@ -566,6 +574,9 @@ function New-StatusPage {
             color: #00d4ff;
             margin-bottom: 20px;
             font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
         .metric { margin: 15px 0; }
         .metric-label { color: #888; font-size: 14px; }
@@ -580,6 +591,7 @@ function New-StatusPage {
         .progress-fill {
             height: 100%;
             border-radius: 4px;
+            transition: width 0.3s ease;
         }
         .progress-fill.green { background: linear-gradient(90deg, #00ff88, #00d4ff); }
         .progress-fill.yellow { background: linear-gradient(90deg, #ffdd00, #ff9900); }
@@ -603,42 +615,66 @@ function New-StatusPage {
         <header>
             <div class="logo">ORIZON</div>
             <p class="subtitle">Zero Trust Connect - $($Config.NodeName)</p>
-            <p class="subtitle" style="font-size: 12px; font-family: monospace;">Node ID: $($Config.NodeId)</p>
+            <p class="subtitle">Node ID: $($Config.NodeId)</p>
         </header>
+
         <div class="grid">
             <div class="card">
                 <h3>System Information</h3>
-                <div class="metric"><div class="metric-label">Hostname</div><div class="metric-value" id="hostname">Loading...</div></div>
-                <div class="metric"><div class="metric-label">Operating System</div><div class="metric-value" id="os">Loading...</div></div>
-                <div class="metric"><div class="metric-label">Uptime</div><div class="metric-value" id="uptime">Loading...</div></div>
+                <div class="metric">
+                    <div class="metric-label">Hostname</div>
+                    <div class="metric-value" id="hostname">Loading...</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Operating System</div>
+                    <div class="metric-value" id="os">Loading...</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Uptime</div>
+                    <div class="metric-value" id="uptime">Loading...</div>
+                </div>
             </div>
+
             <div class="card">
                 <h3>CPU Usage</h3>
                 <div class="metric">
                     <div class="metric-value"><span id="cpu-value">--</span>%</div>
-                    <div class="progress-bar"><div class="progress-fill green" id="cpu-bar" style="width: 0%"></div></div>
+                    <div class="progress-bar">
+                        <div class="progress-fill green" id="cpu-bar" style="width: 0%"></div>
+                    </div>
                 </div>
             </div>
+
             <div class="card">
                 <h3>Memory Usage</h3>
                 <div class="metric">
                     <div class="metric-value"><span id="mem-value">--</span>%</div>
                     <div class="metric-label" id="mem-detail">Loading...</div>
-                    <div class="progress-bar"><div class="progress-fill green" id="mem-bar" style="width: 0%"></div></div>
+                    <div class="progress-bar">
+                        <div class="progress-fill green" id="mem-bar" style="width: 0%"></div>
+                    </div>
                 </div>
             </div>
+
             <div class="card">
                 <h3>Disk Usage</h3>
                 <div class="metric">
                     <div class="metric-value"><span id="disk-value">--</span>%</div>
                     <div class="metric-label" id="disk-detail">Loading...</div>
-                    <div class="progress-bar"><div class="progress-fill green" id="disk-bar" style="width: 0%"></div></div>
+                    <div class="progress-bar">
+                        <div class="progress-fill green" id="disk-bar" style="width: 0%"></div>
+                    </div>
                 </div>
             </div>
+
             <div class="card">
                 <h3>Network</h3>
-                <div class="metric"><div class="metric-label">IP Address</div><div class="metric-value" id="ip-address">Loading...</div></div>
+                <div class="metric">
+                    <div class="metric-label">IP Address</div>
+                    <div class="metric-value" id="ip-address">Loading...</div>
+                </div>
             </div>
+
             <div class="card">
                 <h3>Tunnel Status</h3>
                 <div class="tunnel-status">
@@ -651,32 +687,41 @@ function New-StatusPage {
                 </div>
             </div>
         </div>
+
         <footer>
             <p>Orizon Zero Trust Connect v2.0.0</p>
             <p>Last Update: <span id="last-update">--</span></p>
         </footer>
     </div>
+
     <script>
         async function updateMetrics() {
             try {
                 const response = await fetch('/api/metrics');
                 const data = await response.json();
+
                 document.getElementById('hostname').textContent = data.hostname || 'N/A';
                 document.getElementById('os').textContent = data.os || 'N/A';
                 document.getElementById('uptime').textContent = data.uptime || 'N/A';
+
                 updateProgress('cpu', data.cpu_usage || 0);
                 updateProgress('mem', data.memory_usage || 0);
                 document.getElementById('mem-detail').textContent = data.memory_detail || '';
+
                 updateProgress('disk', data.disk_usage || 0);
                 document.getElementById('disk-detail').textContent = data.disk_detail || '';
+
                 document.getElementById('ip-address').textContent = data.ip_address || 'N/A';
+
                 updateTunnelStatus('tunnel-system', data.tunnel_system);
                 updateTunnelStatus('tunnel-terminal', data.tunnel_terminal);
+
                 document.getElementById('last-update').textContent = new Date().toLocaleString();
             } catch (error) {
                 console.error('Failed to update metrics:', error);
             }
         }
+
         function updateProgress(id, value) {
             const bar = document.getElementById(id + '-bar');
             const valueEl = document.getElementById(id + '-value');
@@ -684,11 +729,13 @@ function New-StatusPage {
             bar.style.width = value + '%';
             bar.className = 'progress-fill ' + (value < 70 ? 'green' : value < 90 ? 'yellow' : 'red');
         }
+
         function updateTunnelStatus(id, isOnline) {
             const el = document.getElementById(id);
             el.textContent = isOnline ? 'ONLINE' : 'OFFLINE';
             el.className = 'status-badge ' + (isOnline ? 'status-online' : 'status-offline');
         }
+
         updateMetrics();
         setInterval(updateMetrics, 10000);
     </script>
@@ -703,40 +750,56 @@ function New-StatusPage {
 }
 
 #==============================================================================
-# PHASE 10: Create Metrics Collector
+# PHASE 10: Create Metrics Update Script
 #==============================================================================
-function New-MetricsCollector {
-    Write-Log "=== PHASE 10: Creating Metrics Collector ===" "INFO"
+function New-MetricsScript {
+    Write-Log "=== PHASE 10: Creating Metrics Update Script ===" "INFO"
 
     $metricsScriptPath = Join-Path $Config.InstallPath "Update-Metrics.ps1"
 
     $metricsScript = @'
-# Orizon Metrics Collector
+# Orizon Metrics Update Script
+# Updates metrics.json for status page
+
 $metricsPath = "C:\ProgramData\Orizon\www\metrics.json"
 
 while ($true) {
     try {
+        # System Info
         $os = Get-CimInstance Win32_OperatingSystem
+        $cs = Get-CimInstance Win32_ComputerSystem
+
+        # CPU
         $cpu = Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average
         $cpuUsage = [math]::Round($cpu.Average, 1)
+
+        # Memory
         $memTotal = [math]::Round($os.TotalVisibleMemorySize / 1MB, 1)
         $memFree = [math]::Round($os.FreePhysicalMemory / 1MB, 1)
         $memUsed = $memTotal - $memFree
         $memUsage = [math]::Round(($memUsed / $memTotal) * 100, 1)
+
+        # Disk
         $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
         $diskTotal = [math]::Round($disk.Size / 1GB, 1)
         $diskFree = [math]::Round($disk.FreeSpace / 1GB, 1)
         $diskUsed = $diskTotal - $diskFree
         $diskUsage = [math]::Round(($diskUsed / $diskTotal) * 100, 1)
+
+        # Uptime
         $uptime = (Get-Date) - $os.LastBootUpTime
         $uptimeStr = "{0}d {1}h {2}m" -f $uptime.Days, $uptime.Hours, $uptime.Minutes
+
+        # IP Address
         $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' } | Select-Object -First 1).IPAddress
+
+        # Tunnel Status
         $tunnelSystem = (Get-Service -Name "OrizonTunnelSystem" -ErrorAction SilentlyContinue).Status -eq 'Running'
         $tunnelTerminal = (Get-Service -Name "OrizonTunnelTerminal" -ErrorAction SilentlyContinue).Status -eq 'Running'
 
         $metrics = @{
             hostname = $env:COMPUTERNAME
-            os = "$($os.Caption)"
+            os = "$($os.Caption) $($os.Version)"
             uptime = $uptimeStr
             cpu_usage = $cpuUsage
             memory_usage = $memUsage
@@ -750,16 +813,110 @@ while ($true) {
         }
 
         $metrics | ConvertTo-Json | Out-File -FilePath $metricsPath -Encoding UTF8 -Force
-    } catch { }
+    } catch {
+        # Log error but continue
+    }
+
     Start-Sleep -Seconds 10
 }
 '@
 
     $metricsScript | Out-File -FilePath $metricsScriptPath -Encoding UTF8 -Force
+    Write-Log "Metrics script created: $metricsScriptPath" "SUCCESS"
 
-    # Create Metrics service using NSSM
+    return $true
+}
+
+#==============================================================================
+# PHASE 11: Install Watchdog
+#==============================================================================
+function Install-Watchdog {
+    Write-Log "=== PHASE 11: Installing Watchdog Service ===" "INFO"
+
+    $watchdogScriptPath = Join-Path $Config.InstallPath "Orizon-Watchdog.ps1"
+
+    $watchdogScript = @"
+# Orizon Watchdog Service
+# Monitors and restarts tunnel services if needed
+
+`$Config = @{
+    HubHost = "$($Config.HubHost)"
+    HubSshPort = $($Config.HubSshPort)
+    LogPath = "$($Config.LogPath)"
+}
+
+`$LogFile = Join-Path `$Config.LogPath "watchdog.log"
+
+function Write-WatchdogLog {
+    param([string]`$Message)
+    `$entry = "[`$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] `$Message"
+    Add-Content -Path `$LogFile -Value `$entry
+}
+
+function Test-TunnelHealth {
+    `$systemTunnel = Get-Service -Name "OrizonTunnelSystem" -ErrorAction SilentlyContinue
+    `$terminalTunnel = Get-Service -Name "OrizonTunnelTerminal" -ErrorAction SilentlyContinue
+    `$metricsService = Get-Service -Name "OrizonMetrics" -ErrorAction SilentlyContinue
+
+    return @{
+        SystemTunnel = (`$systemTunnel.Status -eq 'Running')
+        TerminalTunnel = (`$terminalTunnel.Status -eq 'Running')
+        MetricsService = (`$metricsService.Status -eq 'Running')
+    }
+}
+
+Write-WatchdogLog "Watchdog started"
+
+while (`$true) {
+    try {
+        `$health = Test-TunnelHealth
+
+        if (-not `$health.SystemTunnel) {
+            Write-WatchdogLog "System tunnel down, restarting..."
+            Restart-Service -Name "OrizonTunnelSystem" -Force
+        }
+
+        if (-not `$health.TerminalTunnel) {
+            Write-WatchdogLog "Terminal tunnel down, restarting..."
+            Restart-Service -Name "OrizonTunnelTerminal" -Force
+        }
+
+        if (-not `$health.MetricsService) {
+            Write-WatchdogLog "Metrics service down, restarting..."
+            Restart-Service -Name "OrizonMetrics" -Force
+        }
+    } catch {
+        Write-WatchdogLog "Error: `$_"
+    }
+
+    Start-Sleep -Seconds 30
+}
+"@
+
+    $watchdogScript | Out-File -FilePath $watchdogScriptPath -Encoding UTF8 -Force
+
+    # Create scheduled task for watchdog
+    $taskName = "OrizonWatchdog"
+
+    # Remove existing task
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" `
+        -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$watchdogScriptPath`""
+
+    $trigger = New-ScheduledTaskTrigger -AtStartup
+    $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal
+    Start-ScheduledTask -TaskName $taskName
+
+    Write-Log "Watchdog scheduled task created" "SUCCESS"
+
+    # Also create Metrics service using NSSM
     $nssmPath = Join-Path $Config.ToolsPath "nssm.exe"
     $serviceName = "OrizonMetrics"
+    $metricsScriptPath = Join-Path $Config.InstallPath "Update-Metrics.ps1"
 
     $existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if ($existingService) {
@@ -771,67 +928,10 @@ while ($true) {
     & $nssmPath set $serviceName Description "Orizon Zero Trust - Metrics Collector"
     & $nssmPath set $serviceName Start SERVICE_AUTO_START
 
-    Start-Service -Name $serviceName -ErrorAction SilentlyContinue
+    Start-Service -Name $serviceName
 
-    Write-Log "Metrics collector created" "SUCCESS"
-    return $true
-}
+    Write-Log "Metrics service created and started" "SUCCESS"
 
-#==============================================================================
-# PHASE 11: Install Watchdog
-#==============================================================================
-function Install-Watchdog {
-    Write-Log "=== PHASE 11: Installing Watchdog ===" "INFO"
-
-    $watchdogScriptPath = Join-Path $Config.InstallPath "Orizon-Watchdog.ps1"
-
-    $watchdogScript = @"
-
-`$LogFile = "C:\ProgramData\Orizon\logs\watchdog.log"
-
-function Write-WatchdogLog {
-    param([string]`$Message)
-    `$entry = "[`$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] `$Message"
-    Add-Content -Path `$LogFile -Value `$entry -ErrorAction SilentlyContinue
-}
-
-Write-WatchdogLog "Watchdog started"
-
-while (`$true) {
-    try {
-        `$services = @("OrizonTunnelSystem", "OrizonTunnelTerminal", "OrizonMetrics", "OrizonNginx")
-        foreach (`$svc in `$services) {
-            `$status = Get-Service -Name `$svc -ErrorAction SilentlyContinue
-            if (`$status -and `$status.Status -ne 'Running') {
-                Write-WatchdogLog "`$svc is down, restarting..."
-                Restart-Service -Name `$svc -Force -ErrorAction SilentlyContinue
-            }
-        }
-    } catch {
-        Write-WatchdogLog "Error: `$_"
-    }
-    Start-Sleep -Seconds 30
-}
-"@
-
-    $watchdogScript | Out-File -FilePath $watchdogScriptPath -Encoding UTF8 -Force
-
-    # Create scheduled task for watchdog
-    $taskName = "OrizonWatchdog"
-
-    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" `
-        -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$watchdogScriptPath`""
-
-    $trigger = New-ScheduledTaskTrigger -AtStartup
-    $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
-
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal | Out-Null
-    Start-ScheduledTask -TaskName $taskName
-
-    Write-Log "Watchdog installed" "SUCCESS"
     return $true
 }
 
@@ -847,20 +947,26 @@ function Set-FirewallRules {
     # Allow HTTPS inbound (status page)
     New-NetFirewallRule -DisplayName "Orizon - HTTPS Status Page" `
         -Direction Inbound -Protocol TCP -LocalPort $Config.LocalHttpsPort `
-        -Action Allow -Profile Any -Description "Allows HTTPS access to Orizon status page" | Out-Null
+        -Action Allow -Profile Any -Description "Allows HTTPS access to Orizon status page"
 
-    # Allow SSH inbound
-    New-NetFirewallRule -DisplayName "Orizon - SSH Inbound" `
+    # Allow SSH inbound (local network only)
+    New-NetFirewallRule -DisplayName "Orizon - SSH Local" `
         -Direction Inbound -Protocol TCP -LocalPort $Config.LocalSshPort `
-        -Action Allow -Profile Any -Description "Allows SSH access for Orizon tunnels" | Out-Null
+        -Action Allow -Profile Any -Description "Allows SSH access for Orizon tunnels"
 
     # Allow outbound to Hub
     New-NetFirewallRule -DisplayName "Orizon - Hub Tunnel Outbound" `
         -Direction Outbound -Protocol TCP -RemotePort $Config.HubSshPort `
         -RemoteAddress $Config.HubHost -Action Allow -Profile Any `
-        -Description "Allows outbound SSH tunnel to Orizon Hub" | Out-Null
+        -Description "Allows outbound SSH tunnel to Orizon Hub"
+
+    # Enable firewall logging
+    $logPath = Join-Path $Config.LogPath "firewall.log"
+    Set-NetFirewallProfile -Profile Domain,Public,Private `
+        -LogFileName $logPath -LogAllowed False -LogBlocked True -LogMaxSizeKilobytes 4096
 
     Write-Log "Windows Firewall rules configured" "SUCCESS"
+
     return $true
 }
 
@@ -872,37 +978,51 @@ function Test-Installation {
 
     $results = @{
         OpenSSH = (Get-Service -Name sshd -ErrorAction SilentlyContinue).Status -eq 'Running'
-        TunnelSystem = (Get-Service -Name OrizonTunnelSystem -ErrorAction SilentlyContinue) -ne $null
-        TunnelTerminal = (Get-Service -Name OrizonTunnelTerminal -ErrorAction SilentlyContinue) -ne $null
-        Nginx = (Get-Service -Name OrizonNginx -ErrorAction SilentlyContinue) -ne $null
-        Metrics = (Get-Service -Name OrizonMetrics -ErrorAction SilentlyContinue) -ne $null
+        TunnelSystem = (Get-Service -Name OrizonTunnelSystem -ErrorAction SilentlyContinue).Status -eq 'Running'
+        TunnelTerminal = (Get-Service -Name OrizonTunnelTerminal -ErrorAction SilentlyContinue).Status -eq 'Running'
+        Nginx = (Get-Service -Name OrizonNginx -ErrorAction SilentlyContinue).Status -eq 'Running'
+        Metrics = (Get-Service -Name OrizonMetrics -ErrorAction SilentlyContinue).Status -eq 'Running'
+        Watchdog = (Get-ScheduledTask -TaskName OrizonWatchdog -ErrorAction SilentlyContinue).State -eq 'Running'
         StatusPage = Test-Path (Join-Path $Config.WwwPath "index.html")
         SshKeys = Test-Path (Join-Path $Config.SshPath "id_ed25519")
     }
 
     Write-Host ""
-    Write-Host "Installation Verification" -ForegroundColor Cyan
-    Write-Host "=========================" -ForegroundColor Cyan
+    Write-Host "╔═══════════════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║           INSTALLATION VERIFICATION               ║" -ForegroundColor Cyan
+    Write-Host "╠═══════════════════════════════════════════════════╣" -ForegroundColor Cyan
 
     foreach ($key in $results.Keys) {
-        $status = if ($results[$key]) { "OK" } else { "FAIL" }
+        $status = if ($results[$key]) { "[OK]" } else { "[FAIL]" }
         $color = if ($results[$key]) { "Green" } else { "Red" }
-        Write-Host "  $key : $status" -ForegroundColor $color
+        $line = "║  {0,-20} {1,-26}  ║" -f $key, $status
+        Write-Host $line -ForegroundColor $color
     }
 
-    Write-Host ""
-    Write-Host "Status Page: https://localhost:$($Config.LocalHttpsPort)" -ForegroundColor Green
-    Write-Host "System Tunnel Port: $($Config.SystemTunnelPort)" -ForegroundColor Green
-    Write-Host "Terminal Tunnel Port: $($Config.TerminalTunnelPort)" -ForegroundColor Green
+    Write-Host "╚═══════════════════════════════════════════════════╝" -ForegroundColor Cyan
     Write-Host ""
 
-    return $true
+    $allPassed = $results.Values -notcontains $false
+
+    if ($allPassed) {
+        Write-Log "All components installed successfully!" "SUCCESS"
+        Write-Host ""
+        Write-Host "  Status Page: https://localhost:$($Config.LocalHttpsPort)" -ForegroundColor Green
+        Write-Host "  System Tunnel Port: $($Config.SystemTunnelPort)" -ForegroundColor Green
+        Write-Host "  Terminal Tunnel Port: $($Config.TerminalTunnelPort)" -ForegroundColor Green
+        Write-Host ""
+    } else {
+        Write-Log "Some components failed to install" "ERROR"
+    }
+
+    return $allPassed
 }
 
 #==============================================================================
 # MAIN EXECUTION
 #==============================================================================
 
+# Clear screen and show banner
 Clear-Host
 Write-Banner
 
@@ -922,7 +1042,7 @@ $phases = @(
     @{ Name = "Tunnels"; Function = { Install-TunnelServices } },
     @{ Name = "nginx"; Function = { Install-Nginx } },
     @{ Name = "Status Page"; Function = { New-StatusPage } },
-    @{ Name = "Metrics"; Function = { New-MetricsCollector } },
+    @{ Name = "Metrics"; Function = { New-MetricsScript } },
     @{ Name = "Watchdog"; Function = { Install-Watchdog } },
     @{ Name = "Firewall"; Function = { Set-FirewallRules } }
 )
@@ -939,20 +1059,9 @@ foreach ($phase in $phases) {
 
 if ($success) {
     Test-Installation
-    Write-Host ""
-    Write-Host "INSTALLATION COMPLETE" -ForegroundColor Green
-    Write-Host "=====================" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "Your node is now connected to the Orizon Hub." -ForegroundColor Cyan
-    Write-Host "If tunnels show as not running, ensure the public key" -ForegroundColor Yellow
-    Write-Host "has been registered on the Hub server." -ForegroundColor Yellow
-    Write-Host ""
 }
 
-if ($script:LogFile) {
-    Write-Log "Installation log saved to: $($script:LogFile)" "INFO"
-}
-
+Write-Log "Installation log saved to: $LogFile" "INFO"
 Write-Host ""
 Write-Host "Press any key to exit..." -ForegroundColor Gray
 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")

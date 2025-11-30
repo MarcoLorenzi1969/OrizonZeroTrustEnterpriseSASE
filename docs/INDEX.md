@@ -10,6 +10,8 @@ Orizon Zero Trust Connect is an enterprise-grade SD-WAN platform implementing Ze
 |----------|-------------|
 | [Architecture](ARCHITECTURE.md) | System architecture and component overview |
 | [API Reference](API_REFERENCE.md) | Complete REST API documentation |
+| [System Tunnels](SYSTEM_TUNNELS.md) | System tunnels guide (v2.0.2) |
+| [Windows Agent](WINDOWS_AGENT.md) | Windows agent installation guide (v2.0.2) |
 | [User Hierarchy](USER_HIERARCHY.md) | 4-level RBAC hierarchy system |
 | [Deployment](DEPLOYMENT.md) | Production deployment guide |
 | [Security](SECURITY.md) | Security configuration and best practices |

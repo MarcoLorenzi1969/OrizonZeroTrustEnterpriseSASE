@@ -23,6 +23,9 @@ export interface GenerateScriptRequest {
   tunnelType: 'SSH' | 'SSL';
   apiBaseUrl: string;
   applicationPorts: Record<string, ApplicationPort>;
+  // Optional: if not provided, will be calculated from nodeId
+  systemTunnelPort?: number;
+  terminalTunnelPort?: number;
 }
 
 export type OsType = 'linux' | 'macos' | 'windows';
@@ -56,6 +59,29 @@ export class ScriptGenerator {
   }
 
   /**
+   * Calculate deterministic tunnel ports from node ID
+   * Uses MD5 hash of node ID to generate consistent port numbers
+   */
+  private calculateTunnelPorts(nodeId: string): { systemPort: number; terminalPort: number } {
+    // Simple hash function for browser/node compatibility
+    let hash = 0;
+    for (let i = 0; i < nodeId.length; i++) {
+      const char = nodeId.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    hash = Math.abs(hash);
+
+    // System tunnel: port range 9000-9999
+    const systemPort = 9000 + (hash % 1000);
+
+    // Terminal tunnel: port range 10000-59999
+    const terminalPort = 10000 + (hash % 50000);
+
+    return { systemPort, terminalPort };
+  }
+
+  /**
    * Generate installation script for specified OS
    */
   public generateScript(osType: OsType, data: GenerateScriptRequest): string {
@@ -64,10 +90,15 @@ export class ScriptGenerator {
       throw new Error(`Template not found for OS type: ${osType}`);
     }
 
+    // Calculate tunnel ports if not provided
+    const tunnelPorts = this.calculateTunnelPorts(data.nodeId);
+
     // Prepare template data
     const templateData = {
       ...data,
       timestamp: new Date().toISOString(),
+      systemTunnelPort: data.systemTunnelPort || tunnelPorts.systemPort,
+      terminalTunnelPort: data.terminalTunnelPort || tunnelPorts.terminalPort,
     };
 
     // Generate script

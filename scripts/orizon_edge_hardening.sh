@@ -16,9 +16,9 @@
 set -euo pipefail
 
 # === VERSIONE E METADATA ===
-readonly SCRIPT_VERSION="1.0.0"
+readonly SCRIPT_VERSION="2.0.0"
 readonly SCRIPT_NAME="orizon-edge-hardening"
-readonly SCRIPT_DATE="2025-11-28"
+readonly SCRIPT_DATE="2025-11-30"
 
 # === CONFIGURAZIONE DEFAULT ===
 HUB_SSH_HOST="${HUB_SSH_HOST:-139.59.149.48}"
@@ -682,24 +682,33 @@ HTMLEOF
 }
 
 # === SETUP TUNNEL AUTOSSH ===
+# v2.0: Now creates TWO separate tunnels (System + Terminal) for parity with Windows
 setup_autossh_tunnel() {
-    log_info "Configurazione tunnel SSH persistente (autossh)..."
+    log_info "Configurazione tunnel SSH persistenti (autossh)..."
 
     if [[ "$DRY_RUN" == "true" ]]; then
-        log_info "[DRY-RUN] Creerebbe servizio orizon-tunnel.service"
+        log_info "[DRY-RUN] Creerebbe servizi orizon-tunnel-system.service e orizon-tunnel-terminal.service"
         return 0
     fi
 
-    # Determina porte remote
-    # Usa hash del NODE_ID per porte consistenti
+    # Determina porte remote usando hash del NODE_ID
     local hash=$(echo -n "$NODE_ID" | md5sum | cut -c1-4)
-    local remote_ssh_port=$((10000 + 16#$hash % 50000))
-    local remote_https_port=$((remote_ssh_port + 1000))
+    local system_tunnel_port=$((9000 + 16#$hash % 1000))
+    local terminal_tunnel_port=$((10000 + 16#$hash % 50000))
 
-    # Crea servizio systemd
-    cat > /etc/systemd/system/orizon-tunnel.service << SVCEOF
+    # Stop e rimuovi vecchio servizio unificato se esiste
+    if systemctl is-active --quiet orizon-tunnel 2>/dev/null; then
+        log_info "Migrazione da tunnel singolo a doppio tunnel..."
+        systemctl stop orizon-tunnel 2>/dev/null || true
+        systemctl disable orizon-tunnel 2>/dev/null || true
+        rm -f /etc/systemd/system/orizon-tunnel.service
+    fi
+
+    # === TUNNEL SISTEMA (Management) ===
+    log_info "Creazione tunnel sistema (porta $system_tunnel_port)..."
+    cat > /etc/systemd/system/orizon-tunnel-system.service << SVCEOF
 [Unit]
-Description=Orizon Zero Trust Connect - SSH Tunnel
+Description=Orizon Zero Trust Connect - System Management Tunnel
 Documentation=https://orizon.syneto.net
 After=network-online.target
 Wants=network-online.target
@@ -708,16 +717,16 @@ Wants=network-online.target
 Type=simple
 User=root
 Environment="AUTOSSH_GATETIME=0"
+Environment="AUTOSSH_POLL=60"
 ExecStart=/usr/bin/autossh -M 0 -N \\
-    -o "ServerAliveInterval=30" \\
+    -o "ServerAliveInterval=15" \\
     -o "ServerAliveCountMax=3" \\
     -o "ExitOnForwardFailure=yes" \\
     -o "StrictHostKeyChecking=no" \\
     -o "UserKnownHostsFile=/dev/null" \\
     -i ${SSH_KEY_PATH} \\
     -p ${HUB_SSH_PORT} \\
-    -R ${remote_ssh_port}:localhost:22 \\
-    -R ${remote_https_port}:localhost:443 \\
+    -R ${system_tunnel_port}:localhost:22 \\
     ${NODE_ID}@${HUB_SSH_HOST}
 
 Restart=always
@@ -727,10 +736,44 @@ RestartSec=10
 WantedBy=multi-user.target
 SVCEOF
 
-    # Reload e avvia
+    # === TUNNEL TERMINALE (Shell Access) ===
+    log_info "Creazione tunnel terminale (porta $terminal_tunnel_port)..."
+    cat > /etc/systemd/system/orizon-tunnel-terminal.service << SVCEOF
+[Unit]
+Description=Orizon Zero Trust Connect - Terminal Access Tunnel
+Documentation=https://orizon.syneto.net
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment="AUTOSSH_GATETIME=0"
+Environment="AUTOSSH_POLL=60"
+ExecStart=/usr/bin/autossh -M 0 -N \\
+    -o "ServerAliveInterval=15" \\
+    -o "ServerAliveCountMax=3" \\
+    -o "ExitOnForwardFailure=yes" \\
+    -o "StrictHostKeyChecking=no" \\
+    -o "UserKnownHostsFile=/dev/null" \\
+    -i ${SSH_KEY_PATH} \\
+    -p ${HUB_SSH_PORT} \\
+    -R ${terminal_tunnel_port}:localhost:22 \\
+    ${NODE_ID}@${HUB_SSH_HOST}
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+    # Reload e avvia entrambi i tunnel
     systemctl daemon-reload
-    systemctl enable orizon-tunnel &>/dev/null
-    systemctl restart orizon-tunnel
+    systemctl enable orizon-tunnel-system &>/dev/null
+    systemctl enable orizon-tunnel-terminal &>/dev/null
+    systemctl restart orizon-tunnel-system
+    systemctl restart orizon-tunnel-terminal
 
     # Salva info porte
     mkdir -p /etc/orizon
@@ -738,13 +781,16 @@ SVCEOF
 NODE_ID=${NODE_ID}
 HUB_HOST=${HUB_SSH_HOST}
 HUB_PORT=${HUB_SSH_PORT}
-REMOTE_SSH_PORT=${remote_ssh_port}
-REMOTE_HTTPS_PORT=${remote_https_port}
+SYSTEM_TUNNEL_PORT=${system_tunnel_port}
+TERMINAL_TUNNEL_PORT=${terminal_tunnel_port}
+# Legacy compatibility
+REMOTE_SSH_PORT=${terminal_tunnel_port}
+REMOTE_HTTPS_PORT=$((terminal_tunnel_port + 1000))
 CFGEOF
 
-    log_success "Tunnel autossh configurato"
-    log_info "  SSH:   localhost:22 -> Hub:${remote_ssh_port}"
-    log_info "  HTTPS: localhost:443 -> Hub:${remote_https_port}"
+    log_success "Tunnel autossh configurati (v2.0 - dual tunnel)"
+    log_info "  System Tunnel:   localhost:22 -> Hub:${system_tunnel_port}"
+    log_info "  Terminal Tunnel: localhost:22 -> Hub:${terminal_tunnel_port}"
 }
 
 # === SETUP PATH E MOTD ===
@@ -779,12 +825,25 @@ echo -e "${C}╚═════════════════════�
 echo ""
 
 # Stato servizi
-tunnel_status=$(systemctl is-active orizon-tunnel 2>/dev/null || echo "inactive")
+# Check both tunnels - show active if both are running
+tunnel_sys_status=$(systemctl is-active orizon-tunnel-system 2>/dev/null || echo "inactive")
+tunnel_term_status=$(systemctl is-active orizon-tunnel-terminal 2>/dev/null || echo "inactive")
+if [[ "$tunnel_sys_status" == "active" && "$tunnel_term_status" == "active" ]]; then
+    tunnel_status="active"
+elif [[ "$tunnel_sys_status" == "active" || "$tunnel_term_status" == "active" ]]; then
+    tunnel_status="partial"
+else
+    tunnel_status="inactive"
+fi
 nginx_status=$(systemctl is-active nginx 2>/dev/null || echo "inactive")
 f2b_status=$(systemctl is-active fail2ban 2>/dev/null || echo "inactive")
 fw_status=$(systemctl is-active nftables 2>/dev/null || echo "inactive")
 
-[[ "$tunnel_status" == "active" ]] && echo -e " Tunnel:    ${G}ACTIVE${N}" || echo -e " Tunnel:    ${R}INACTIVE${N}"
+case "$tunnel_status" in
+    active)  echo -e " Tunnels:   ${G}ACTIVE${N} (System + Terminal)" ;;
+    partial) echo -e " Tunnels:   ${Y}PARTIAL${N} (Check individual services)" ;;
+    *)       echo -e " Tunnels:   ${R}INACTIVE${N}" ;;
+esac
 [[ "$nginx_status" == "active" ]] && echo -e " Nginx:     ${G}ACTIVE${N}" || echo -e " Nginx:     ${Y}INACTIVE${N}"
 [[ "$f2b_status" == "active" ]] && echo -e " Fail2ban:  ${G}ACTIVE${N}" || echo -e " Fail2ban:  ${Y}INACTIVE${N}"
 [[ "$fw_status" == "active" ]] && echo -e " Firewall:  ${G}ACTIVE${N}" || echo -e " Firewall:  ${Y}INACTIVE${N}"
@@ -811,7 +870,7 @@ verify_setup() {
     echo ""
 
     # Check servizi
-    for svc in orizon-tunnel nginx fail2ban nftables; do
+    for svc in orizon-tunnel-system orizon-tunnel-terminal nginx fail2ban nftables; do
         if systemctl is-active --quiet "$svc" 2>/dev/null; then
             echo -e "  ${GREEN}[✓]${NC} $svc: ACTIVE"
         else
@@ -871,7 +930,7 @@ show_status() {
 
     # Servizi
     echo -e "${BOLD}Servizi:${NC}"
-    for svc in orizon-tunnel nginx fail2ban nftables; do
+    for svc in orizon-tunnel-system orizon-tunnel-terminal nginx fail2ban nftables; do
         status=$(systemctl is-active "$svc" 2>/dev/null || echo "not-found")
         case "$status" in
             active)   echo -e "  $svc:\t${GREEN}ACTIVE${NC}" ;;
@@ -900,8 +959,9 @@ show_status() {
 
     # Comandi utili
     echo -e "${BOLD}Comandi Utili:${NC}"
-    echo "  journalctl -u orizon-tunnel -f    # Log tunnel"
-    echo "  systemctl restart orizon-tunnel   # Riavvia tunnel"
+    echo "  journalctl -u orizon-tunnel-system -f    # Log tunnel sistema"
+    echo "  journalctl -u orizon-tunnel-terminal -f  # Log tunnel terminale"
+    echo "  systemctl restart orizon-tunnel-system orizon-tunnel-terminal  # Riavvia tunnel"
     echo "  curl -k https://localhost         # Test HTTPS"
     echo "  fail2ban-client status            # Stato fail2ban"
     echo ""

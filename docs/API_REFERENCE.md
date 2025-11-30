@@ -351,6 +351,66 @@ Receive metrics update from node agent.
 
 ---
 
+### GET /nodes/{node_id}/https-proxy
+
+Proxy HTTPS request to the edge node via SSH tunnel (v2.0.2).
+
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| t | string | Yes | One-time proxy token |
+
+**Response:** Proxied HTML content from edge node
+
+**Example:**
+```bash
+curl "https://<HUB_IP>/api/v1/nodes/{node_id}/https-proxy?t=TOKEN"
+```
+
+---
+
+### GET /nodes/{node_id}/https-proxy/{proxy_path}
+
+Proxy HTTPS request to a specific path on the edge node (v2.0.2).
+
+Allows proxying requests to sub-paths like `/api/metrics` through the SSH tunnel.
+
+**Path Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| node_id | UUID | Node identifier |
+| proxy_path | string | Path to proxy (e.g., `api/metrics`) |
+
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| t | string | Yes | One-time proxy token |
+
+**Response:** Proxied content from edge node at specified path
+
+**Example:**
+```bash
+# Proxy to /api/metrics on edge node
+curl "https://<HUB_IP>/api/v1/nodes/{node_id}/https-proxy/api/metrics?t=TOKEN"
+
+# Response
+{
+  "hostname": "WIN11-EDGE",
+  "cpu_usage": 23.5,
+  "memory_usage": 67.2,
+  "disk_usage": 45.3,
+  "tunnel_system": true,
+  "tunnel_terminal": true
+}
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Invalid or expired token
+- `404 Not Found`: Node not found
+- `502 Bad Gateway`: Cannot connect to edge node
+
+---
+
 ## Group Endpoints
 
 ### GET /groups/

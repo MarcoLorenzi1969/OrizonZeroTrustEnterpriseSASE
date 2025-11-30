@@ -110,7 +110,32 @@ backend/
 - RDP (port 3389)
 - VNC (port 5900)
 
-### 4. Databases
+### 4. System Tunnels (v2.0.2)
+
+Ogni nodo edge stabilisce automaticamente tre tunnel persistenti con l'Hub:
+
+| Tunnel | Porta Locale | Scopo |
+|--------|--------------|-------|
+| System Tunnel | 22 (SSH) | Accesso SSH principale |
+| Terminal Tunnel | 22 (SSH) | Sessioni terminale web |
+| HTTPS Tunnel | 443 | Proxy verso servizi web del nodo |
+
+**Hardened Keep-Alive Configuration**:
+```
+ServerAliveInterval=15     # Ping ogni 15 secondi
+ServerAliveCountMax=3      # Max 3 ping falliti
+ExitOnForwardFailure=yes   # Esci se forward fallisce
+```
+
+**is_system Flag**: I system tunnels sono marcati con `is_system=true` nel database:
+- Non eliminabili dall'utente
+- Auto-creati all'installazione dell'agent
+- Sempre attivi quando il nodo è online
+- Visualizzati con badge "System" nella dashboard
+
+Per dettagli completi, vedere [System Tunnels](SYSTEM_TUNNELS.md).
+
+### 5. Databases
 
 #### PostgreSQL
 - **Purpose**: Primary data store
@@ -308,6 +333,6 @@ NodeGroup (Many-to-Many):
 
 ## Version Information
 
-- **Current Version**: 2.0.0
+- **Current Version**: 2.0.2
 - **API Version**: v1
-- **Last Updated**: November 2025
+- **Last Updated**: 30 November 2025

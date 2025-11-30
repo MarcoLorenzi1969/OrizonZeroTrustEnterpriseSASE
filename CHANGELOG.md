@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.2] - 2025-11-30
+
+### System Tunnels & Windows Agent
+
+Questa release introduce System Tunnels persistenti con hardened keep-alive e supporto completo per Windows Agent.
+
+*This release introduces persistent System Tunnels with hardened keep-alive and full Windows Agent support.*
+
+### Added
+
+#### System Tunnels
+- **Persistent System Tunnels**: Ogni nodo edge stabilisce automaticamente 3 tunnel persistenti
+  - System Tunnel (SSH): Accesso SSH principale
+  - Terminal Tunnel: Sessioni terminale web
+  - HTTPS Tunnel: Proxy verso servizi web del nodo
+- **is_system Flag**: Identificazione tunnel di sistema nel database
+  - Non eliminabili dall'utente
+  - Auto-creati all'installazione dell'agent
+  - Badge "System" distintivo nella dashboard
+- **Dashboard Visualization**: Nuova visualizzazione tunnel con badge colorati
+
+#### Hardened Keep-Alive
+- **Configurazione SSH ottimizzata**:
+  ```
+  ServerAliveInterval=15
+  ServerAliveCountMax=3
+  ExitOnForwardFailure=yes
+  ```
+- **Rilevamento disconnessione**: 45 secondi massimo
+- **Riconnessione automatica**: Tramite autossh con AUTOSSH_GATETIME=0
+
+#### Windows Agent
+- **Installer Unificato** (`orizon_unified_installer.ps1`):
+  - Installazione automatica OpenSSH, nginx, nssm
+  - Creazione servizi Windows (OrizonTunnelSystem, OrizonTunnelTerminal, OrizonTunnelHTTPS)
+  - Configurazione firewall automatica
+- **Status Page Locale**: Server nginx con pagina di stato real-time
+- **Metrics Collector**: Raccolta metriche CPU, RAM, Disco, GPU (se disponibile)
+- **Watchdog Service**: Monitoraggio e riavvio automatico tunnel
+- **Uninstaller**: Script di disinstallazione completo
+
+#### HTTPS Proxy Path Endpoint
+- **GET /nodes/{node_id}/https-proxy/{proxy_path}**: Nuovo endpoint per proxy sub-path
+  - Permette accesso a `/api/metrics` e altri path attraverso il tunnel
+  - JavaScript proxy-aware nella status page per funzionamento via Hub
+
+#### Documentation
+- **Nuovi documenti**:
+  - `docs/SYSTEM_TUNNELS.md`: Guida completa ai System Tunnels
+  - `docs/WINDOWS_AGENT.md`: Guida all'Agent Windows
+- **Aggiornamenti**:
+  - `docs/ARCHITECTURE.md`: Sezione System Tunnels e Keep-Alive
+  - `docs/API_REFERENCE.md`: Endpoint HTTPS proxy path
+  - `docs/INDEX.md`: Link ai nuovi documenti
+
+### Fixed
+
+- **Status Page via Proxy**: La status page ora funziona correttamente quando accessa via Hub proxy
+  - JavaScript rileva automaticamente accesso via proxy (parametro `t`)
+  - Costruisce URL corretti per `/api/metrics`
+
+### Changed
+
+- **Placeholder Template**: Sostituzione IP hardcoded con `<HUB_IP>` placeholder
+- **Versioning**: Da v2.0.1 a v2.0.2
+
+### Technical Details
+
+- **Backend**: `nodes.py` +128 linee per HTTPS proxy path
+- **Script Generator**: Supporto template Windows PowerShell (+1035 linee)
+- **agents/windows/**: Nuova directory con installer completo
+
+---
+
 ## [2.0.1] - 2025-11-25
 
 ### 🎯 4-Level Role Hierarchy
@@ -89,7 +163,7 @@ This release completes the role hierarchy implementation and unifies all documen
 
 ### 🔗 Previous Release
 
-## [2.0.1] - 2025-11-24
+## [2.0.1a] - 2025-11-24
 
 ### 🏢 Multi-Tenant System
 

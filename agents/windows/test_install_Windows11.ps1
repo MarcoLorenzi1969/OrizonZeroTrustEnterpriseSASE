@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     Orizon Zero Trust Connect - Windows Unified Installer
-    Generated: {{timestamp}}
+    Generated: 2025-11-30T12:51:01.399Z
 
 .DESCRIPTION
     Complete installation script for Windows Edge nodes including:
@@ -14,13 +14,13 @@
 
 .NOTES
     Version:        2.0.0
-    Node ID:        {{nodeId}}
-    Node Name:      {{nodeName}}
+    Node ID:        abd35536-1c40-43a8-98ae-6424bc0935dd
+    Node Name:      Windows11-Edge-Test
     Platform:       Windows 10/11, Windows Server 2019/2022
 
 .EXAMPLE
     # Run as Administrator from PowerShell
-    .\install_{{nodeName}}.ps1
+    .\install_Windows11-Edge-Test.ps1
 #>
 
 #==============================================================================
@@ -28,19 +28,19 @@
 #==============================================================================
 $Config = @{
     # Node Identity
-    NodeId              = "{{nodeId}}"
-    NodeName            = "{{nodeName}}"
-    AgentToken          = "{{agentToken}}"
+    NodeId              = "abd35536-1c40-43a8-98ae-6424bc0935dd"
+    NodeName            = "Windows11-Edge-Test"
+    AgentToken          = "agt_pkeQ1KSujoSW-xm7bRk0143m-x7tM6vqrgmui_WCB3c"
 
     # Hub Connection
-    HubHost             = "{{hubHost}}"
-    HubSshPort          = {{hubSshPort}}
-    ApiBaseUrl          = "{{apiBaseUrl}}"
-    TunnelType          = "{{tunnelType}}"
+    HubHost             = "68.183.219.222"
+    HubSshPort          = 2222
+    ApiBaseUrl          = "http://localhost:8000"
+    TunnelType          = "SSH"
 
     # Tunnel Ports
-    SystemTunnelPort    = {{systemTunnelPort}}
-    TerminalTunnelPort  = {{terminalTunnelPort}}
+    SystemTunnelPort    = 9028
+    TerminalTunnelPort  = 40028
 
     # Local Configuration
     LocalSshPort        = 22

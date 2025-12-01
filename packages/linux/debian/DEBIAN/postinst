@@ -1,0 +1,65 @@
+#!/bin/bash
+#===============================================================================
+# Orizon Agent - Post-Installation Script (Debian/Ubuntu)
+# This script runs after the package files are installed
+#===============================================================================
+
+set -e
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+echo ""
+echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║     ORIZON ZERO TRUST CONNECT - Package Installed                 ║${NC}"
+echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+# Create log directory
+mkdir -p /var/log/orizon
+chmod 755 /var/log/orizon
+
+# Create SSH directory with proper permissions
+mkdir -p /opt/orizon/.ssh
+chmod 700 /opt/orizon/.ssh
+
+# Make scripts executable
+chmod +x /opt/orizon/orizon-setup 2>/dev/null || true
+chmod +x /opt/orizon/watchdog.sh 2>/dev/null || true
+
+# Create symlink if not exists
+if [ ! -f /usr/local/bin/orizon-setup ]; then
+    ln -sf /opt/orizon/orizon-setup /usr/local/bin/orizon-setup
+fi
+
+echo -e "${GREEN}Installation completed successfully!${NC}"
+echo ""
+echo "The following components have been installed:"
+echo ""
+echo "  AUTOSSH"
+echo "    Location: $(which autossh)"
+echo "    Purpose: Maintains persistent SSH tunnel connections"
+echo "    Automatically restarts tunnels if they disconnect"
+echo ""
+echo "  OPENSSH CLIENT"
+echo "    Location: $(which ssh)"
+echo "    Purpose: Creates encrypted connections to Orizon Hub"
+echo "    Uses Ed25519 keys for maximum security"
+echo ""
+echo -e "${YELLOW}NEXT STEPS:${NC}"
+echo ""
+echo "  1. Run the setup wizard to configure your node:"
+echo ""
+echo "     sudo orizon-setup"
+echo ""
+echo "  2. The wizard will guide you through:"
+echo "     - Entering your Node ID and Hub server addresses"
+echo "     - Generating SSH keys"
+echo "     - Creating and starting the tunnel services"
+echo ""
+echo "  For help: orizon-setup --help"
+echo "  Documentation: https://docs.orizon.one"
+echo ""

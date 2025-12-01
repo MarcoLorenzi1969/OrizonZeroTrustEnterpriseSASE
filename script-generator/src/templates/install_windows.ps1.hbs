@@ -32,19 +32,20 @@ $Config = @{
     NodeName            = "{{nodeName}}"
     AgentToken          = "{{agentToken}}"
 
-    # Hub Connection
-    HubHost             = "{{hubHost}}"
-    HubSshPort          = {{hubSshPort}}
+    # Primary Hub Connection (for API calls)
+    HubHost             = "{{primaryHub.host}}"
+    HubSshPort          = {{primaryHub.sshPort}}
     ApiBaseUrl          = "{{apiBaseUrl}}"
     TunnelType          = "{{tunnelType}}"
 
     # Tunnel Ports
     SystemTunnelPort    = {{systemTunnelPort}}
     TerminalTunnelPort  = {{terminalTunnelPort}}
+    HttpsTunnelPort     = {{httpsTunnelPort}}
 
     # Local Configuration
-    LocalSshPort        = 22
-    LocalHttpsPort      = 443
+    LocalSshPort        = {{localSshPort}}
+    LocalHttpsPort      = {{localHttpsPort}}
 
     # Installation Paths
     InstallPath         = "C:\ProgramData\Orizon"
@@ -55,6 +56,18 @@ $Config = @{
     SslPath             = "C:\ProgramData\Orizon\ssl"
     ToolsPath           = "C:\ProgramData\Orizon\tools"
 }
+
+# Multi-Hub Configuration
+$HubServers = @(
+{{#each hubServers}}
+    @{
+        Name     = "{{name}}"
+        Host     = "{{host}}"
+        SshPort  = {{sshPort}}
+        Primary  = ${{#if isPrimary}}true{{else}}false{{/if}}
+    }{{#unless @last}},{{/unless}}
+{{/each}}
+)
 
 #==============================================================================
 # LOGGING
@@ -331,7 +344,7 @@ function Install-NSSM {
 }
 
 #==============================================================================
-# PHASE 7: Create SSH Tunnel Services
+# PHASE 7: Create SSH Tunnel Services (Multi-Hub + HTTPS Support)
 #==============================================================================
 function Install-TunnelServices {
     Write-Log "=== PHASE 7: Creating SSH Tunnel Services ===" "INFO"
@@ -340,57 +353,77 @@ function Install-TunnelServices {
     $sshPath = "C:\Windows\System32\OpenSSH\ssh.exe"
     $privateKeyPath = Join-Path $Config.SshPath "id_ed25519"
 
-    # Service definitions
-    $tunnels = @(
-        @{
-            Name = "OrizonTunnelSystem"
-            Description = "Orizon Zero Trust - System Management Tunnel"
-            Port = $Config.SystemTunnelPort
-            LogFile = Join-Path $Config.LogPath "tunnel-system.log"
-        },
-        @{
-            Name = "OrizonTunnelTerminal"
-            Description = "Orizon Zero Trust - Terminal Access Tunnel"
-            Port = $Config.TerminalTunnelPort
-            LogFile = Join-Path $Config.LogPath "tunnel-terminal.log"
-        }
-    )
+    # Track all created services for watchdog
+    $script:CreatedServices = @()
 
-    foreach ($tunnel in $tunnels) {
-        Write-Log "Configuring $($tunnel.Name)..." "INFO"
+    # Create tunnels for each Hub server
+    foreach ($hub in $HubServers) {
+        Write-Log "Configuring tunnels for $($hub.Name) ($($hub.Host))..." "INFO"
 
-        # Stop and remove existing service
-        $existingService = Get-Service -Name $tunnel.Name -ErrorAction SilentlyContinue
-        if ($existingService) {
-            Stop-Service -Name $tunnel.Name -Force -ErrorAction SilentlyContinue
-            & $nssmPath remove $tunnel.Name confirm 2>&1 | Out-Null
-        }
+        # Tunnel definitions for this hub
+        $tunnels = @(
+            @{
+                Name = "OrizonTunnel$($hub.Name)"
+                Description = "Orizon Zero Trust - System Tunnel to $($hub.Name)"
+                RemotePort = $Config.SystemTunnelPort
+                LocalPort = $Config.LocalSshPort
+                LogFile = Join-Path $Config.LogPath "tunnel-$($hub.Name.ToLower()).log"
+            },
+            @{
+                Name = "OrizonTunnel$($hub.Name)Term"
+                Description = "Orizon Zero Trust - Terminal Tunnel to $($hub.Name)"
+                RemotePort = $Config.TerminalTunnelPort
+                LocalPort = $Config.LocalSshPort
+                LogFile = Join-Path $Config.LogPath "tunnel-$($hub.Name.ToLower())-term.log"
+            },
+            @{
+                Name = "OrizonTunnel$($hub.Name)Https"
+                Description = "Orizon Zero Trust - HTTPS Tunnel to $($hub.Name)"
+                RemotePort = $Config.HttpsTunnelPort
+                LocalPort = $Config.LocalHttpsPort
+                LogFile = Join-Path $Config.LogPath "tunnel-$($hub.Name.ToLower())-https.log"
+            }
+        )
 
-        # Build SSH arguments
-        $sshArgs = "-N -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o BatchMode=yes -i `"$privateKeyPath`" -p $($Config.HubSshPort) -R $($tunnel.Port):localhost:$($Config.LocalSshPort) $($Config.NodeId)@$($Config.HubHost)"
+        foreach ($tunnel in $tunnels) {
+            Write-Log "Configuring $($tunnel.Name)..." "INFO"
 
-        # Install service with NSSM
-        & $nssmPath install $tunnel.Name $sshPath $sshArgs
-        & $nssmPath set $tunnel.Name Description $tunnel.Description
-        & $nssmPath set $tunnel.Name Start SERVICE_AUTO_START
-        & $nssmPath set $tunnel.Name AppStdout $tunnel.LogFile
-        & $nssmPath set $tunnel.Name AppStderr $tunnel.LogFile
-        & $nssmPath set $tunnel.Name AppRotateFiles 1
-        & $nssmPath set $tunnel.Name AppRotateBytes 1048576
-        & $nssmPath set $tunnel.Name AppRestartDelay 5000
+            # Stop and remove existing service
+            $existingService = Get-Service -Name $tunnel.Name -ErrorAction SilentlyContinue
+            if ($existingService) {
+                Stop-Service -Name $tunnel.Name -Force -ErrorAction SilentlyContinue
+                & $nssmPath remove $tunnel.Name confirm 2>&1 | Out-Null
+            }
 
-        # Start service
-        Start-Service -Name $tunnel.Name -ErrorAction SilentlyContinue
+            # Build SSH arguments with keep-alive for hardened tunnel stability
+            $sshArgs = "-N -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o BatchMode=yes -i `"$privateKeyPath`" -p $($hub.SshPort) -R $($tunnel.RemotePort):localhost:$($tunnel.LocalPort) $($Config.NodeId)@$($hub.Host)"
 
-        Start-Sleep -Seconds 2
-        $status = Get-Service -Name $tunnel.Name -ErrorAction SilentlyContinue
-        if ($status.Status -eq 'Running') {
-            Write-Log "$($tunnel.Name) started (Port: $($tunnel.Port))" "SUCCESS"
-        } else {
-            Write-Log "$($tunnel.Name) configured (will start when Hub accepts key)" "WARN"
+            # Install service with NSSM
+            & $nssmPath install $tunnel.Name $sshPath $sshArgs
+            & $nssmPath set $tunnel.Name Description $tunnel.Description
+            & $nssmPath set $tunnel.Name Start SERVICE_AUTO_START
+            & $nssmPath set $tunnel.Name AppStdout $tunnel.LogFile
+            & $nssmPath set $tunnel.Name AppStderr $tunnel.LogFile
+            & $nssmPath set $tunnel.Name AppRotateFiles 1
+            & $nssmPath set $tunnel.Name AppRotateBytes 1048576
+            & $nssmPath set $tunnel.Name AppRestartDelay 5000
+
+            # Start service
+            Start-Service -Name $tunnel.Name -ErrorAction SilentlyContinue
+
+            Start-Sleep -Seconds 2
+            $status = Get-Service -Name $tunnel.Name -ErrorAction SilentlyContinue
+            if ($status.Status -eq 'Running') {
+                Write-Log "$($tunnel.Name) started (Remote: $($tunnel.RemotePort) -> Local: $($tunnel.LocalPort))" "SUCCESS"
+            } else {
+                Write-Log "$($tunnel.Name) configured (will start when Hub accepts key)" "WARN"
+            }
+
+            $script:CreatedServices += $tunnel.Name
         }
     }
 
+    Write-Log "Created $($script:CreatedServices.Count) tunnel services for $($HubServers.Count) hub(s)" "SUCCESS"
     return $true
 }
 
@@ -711,7 +744,7 @@ function New-MetricsCollector {
     $metricsScriptPath = Join-Path $Config.InstallPath "Update-Metrics.ps1"
 
     $metricsScript = @'
-# Orizon Metrics Collector
+# Orizon Metrics Collector (Multi-Hub Support)
 $metricsPath = "C:\ProgramData\Orizon\www\metrics.json"
 
 while ($true) {
@@ -731,8 +764,15 @@ while ($true) {
         $uptime = (Get-Date) - $os.LastBootUpTime
         $uptimeStr = "{0}d {1}h {2}m" -f $uptime.Days, $uptime.Hours, $uptime.Minutes
         $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' } | Select-Object -First 1).IPAddress
-        $tunnelSystem = (Get-Service -Name "OrizonTunnelSystem" -ErrorAction SilentlyContinue).Status -eq 'Running'
-        $tunnelTerminal = (Get-Service -Name "OrizonTunnelTerminal" -ErrorAction SilentlyContinue).Status -eq 'Running'
+
+        # Get all tunnel services dynamically (supports multi-hub)
+        $tunnelServices = @{}
+        Get-Service -Name "OrizonTunnel*" -ErrorAction SilentlyContinue | ForEach-Object {
+            $tunnelServices[$_.Name] = $_.Status -eq 'Running'
+        }
+
+        # Overall tunnel health: true if at least one tunnel per hub is running
+        $tunnelsHealthy = ($tunnelServices.Values | Where-Object { $_ -eq $true }).Count -gt 0
 
         $metrics = @{
             hostname = $env:COMPUTERNAME
@@ -744,12 +784,13 @@ while ($true) {
             disk_usage = $diskUsage
             disk_detail = "$diskUsed GB / $diskTotal GB"
             ip_address = $ip
-            tunnel_system = $tunnelSystem
-            tunnel_terminal = $tunnelTerminal
+            tunnels = $tunnelServices
+            tunnels_healthy = $tunnelsHealthy
+            tunnel_count = $tunnelServices.Count
             last_update = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
         }
 
-        $metrics | ConvertTo-Json | Out-File -FilePath $metricsPath -Encoding UTF8 -Force
+        $metrics | ConvertTo-Json -Depth 3 | Out-File -FilePath $metricsPath -Encoding UTF8 -Force
     } catch { }
     Start-Sleep -Seconds 10
 }
@@ -799,7 +840,8 @@ Write-WatchdogLog "Watchdog started"
 
 while (`$true) {
     try {
-        `$services = @("OrizonTunnelSystem", "OrizonTunnelTerminal", "OrizonMetrics", "OrizonNginx")
+        # Get all Orizon services dynamically (supports multi-hub)
+        `$services = Get-Service -Name "Orizon*" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
         foreach (`$svc in `$services) {
             `$status = Get-Service -Name `$svc -ErrorAction SilentlyContinue
             if (`$status -and `$status.Status -ne 'Running') {
@@ -872,13 +914,15 @@ function Test-Installation {
 
     $results = @{
         OpenSSH = (Get-Service -Name sshd -ErrorAction SilentlyContinue).Status -eq 'Running'
-        TunnelSystem = (Get-Service -Name OrizonTunnelSystem -ErrorAction SilentlyContinue) -ne $null
-        TunnelTerminal = (Get-Service -Name OrizonTunnelTerminal -ErrorAction SilentlyContinue) -ne $null
         Nginx = (Get-Service -Name OrizonNginx -ErrorAction SilentlyContinue) -ne $null
         Metrics = (Get-Service -Name OrizonMetrics -ErrorAction SilentlyContinue) -ne $null
         StatusPage = Test-Path (Join-Path $Config.WwwPath "index.html")
         SshKeys = Test-Path (Join-Path $Config.SshPath "id_ed25519")
     }
+
+    # Check tunnel services dynamically
+    $tunnelServices = Get-Service -Name "OrizonTunnel*" -ErrorAction SilentlyContinue
+    $results["TunnelServices"] = $tunnelServices.Count -gt 0
 
     Write-Host ""
     Write-Host "Installation Verification" -ForegroundColor Cyan
@@ -892,8 +936,16 @@ function Test-Installation {
 
     Write-Host ""
     Write-Host "Status Page: https://localhost:$($Config.LocalHttpsPort)" -ForegroundColor Green
-    Write-Host "System Tunnel Port: $($Config.SystemTunnelPort)" -ForegroundColor Green
-    Write-Host "Terminal Tunnel Port: $($Config.TerminalTunnelPort)" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Tunnel Services Created:" -ForegroundColor Cyan
+
+    foreach ($hub in $HubServers) {
+        Write-Host "  $($hub.Name) ($($hub.Host)):" -ForegroundColor Yellow
+        Write-Host "    - System: OrizonTunnel$($hub.Name) -> Port $($Config.SystemTunnelPort)" -ForegroundColor Gray
+        Write-Host "    - Terminal: OrizonTunnel$($hub.Name)Term -> Port $($Config.TerminalTunnelPort)" -ForegroundColor Gray
+        Write-Host "    - HTTPS: OrizonTunnel$($hub.Name)Https -> Port $($Config.HttpsTunnelPort)" -ForegroundColor Gray
+    }
+
     Write-Host ""
 
     return $true

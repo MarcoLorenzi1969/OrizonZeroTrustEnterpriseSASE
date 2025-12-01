@@ -1,0 +1,34 @@
+#!/bin/bash
+#===============================================================================
+# Orizon Agent - Pre-Removal Script (Debian/Ubuntu)
+# This script runs before the package is removed
+#===============================================================================
+
+set -e
+
+echo ""
+echo "Stopping Orizon services..."
+
+# Stop all Orizon tunnel services
+for service in $(systemctl list-units --type=service --all 2>/dev/null | grep 'orizon' | awk '{print $1}'); do
+    echo "  Stopping $service..."
+    systemctl stop "$service" 2>/dev/null || true
+    systemctl disable "$service" 2>/dev/null || true
+done
+
+# Remove service files
+rm -f /etc/systemd/system/orizon-tunnel-*.service 2>/dev/null || true
+rm -f /etc/systemd/system/orizon-watchdog.service 2>/dev/null || true
+
+# Reload systemd
+systemctl daemon-reload 2>/dev/null || true
+
+echo ""
+echo "Orizon services stopped and disabled."
+echo ""
+echo "Note: Configuration files in /etc/orizon and SSH keys in"
+echo "      /opt/orizon/.ssh have been preserved."
+echo ""
+echo "To completely remove all data, run:"
+echo "  sudo rm -rf /opt/orizon /etc/orizon /var/log/orizon"
+echo ""

@@ -14,18 +14,29 @@ export interface ApplicationPort {
   remote: number;
 }
 
+export interface HubServer {
+  name: string;        // e.g., "Hub1", "Hub2"
+  host: string;        // e.g., "139.59.149.48"
+  sshPort: number;     // e.g., 2222
+  isPrimary: boolean;  // Primary hub for API calls
+}
+
 export interface GenerateScriptRequest {
   nodeId: string;
   nodeName: string;
   agentToken: string;
-  hubHost: string;
-  hubSshPort: number;
+  // Legacy single hub support (deprecated)
+  hubHost?: string;
+  hubSshPort?: number;
+  // New: Multi-hub support
+  hubServers?: HubServer[];
   tunnelType: 'SSH' | 'SSL';
   apiBaseUrl: string;
   applicationPorts: Record<string, ApplicationPort>;
   // Optional: if not provided, will be calculated from nodeId
   systemTunnelPort?: number;
   terminalTunnelPort?: number;
+  httpsTunnelPort?: number;
 }
 
 export type OsType = 'linux' | 'macos' | 'windows';
@@ -93,12 +104,38 @@ export class ScriptGenerator {
     // Calculate tunnel ports if not provided
     const tunnelPorts = this.calculateTunnelPorts(data.nodeId);
 
+    // Build hub servers array (multi-hub support with backward compatibility)
+    let hubServers: HubServer[] = data.hubServers || [];
+    if (hubServers.length === 0 && data.hubHost) {
+      // Legacy single hub mode
+      hubServers = [{
+        name: 'Hub1',
+        host: data.hubHost,
+        sshPort: data.hubSshPort || 2222,
+        isPrimary: true,
+      }];
+    }
+
+    // Get port mappings from applicationPorts or use defaults
+    const terminalPorts = data.applicationPorts?.TERMINAL || { local: 22, remote: tunnelPorts.terminalPort };
+    const httpsPorts = data.applicationPorts?.HTTPS || { local: 443, remote: tunnelPorts.terminalPort + 1 };
+
     // Prepare template data
     const templateData = {
       ...data,
       timestamp: new Date().toISOString(),
       systemTunnelPort: data.systemTunnelPort || tunnelPorts.systemPort,
-      terminalTunnelPort: data.terminalTunnelPort || tunnelPorts.terminalPort,
+      terminalTunnelPort: terminalPorts.remote,
+      httpsTunnelPort: httpsPorts.remote,
+      localSshPort: terminalPorts.local,
+      localHttpsPort: httpsPorts.local,
+      // Multi-hub support
+      hubServers,
+      hasMultipleHubs: hubServers.length > 1,
+      primaryHub: hubServers.find(h => h.isPrimary) || hubServers[0],
+      // Backward compatibility
+      hubHost: data.hubHost || (hubServers[0]?.host || ''),
+      hubSshPort: data.hubSshPort || (hubServers[0]?.sshPort || 2222),
     };
 
     // Generate script

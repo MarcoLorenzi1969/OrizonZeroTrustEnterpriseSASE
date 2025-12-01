@@ -1,0 +1,24 @@
+Package: orizon-agent
+Version: 2.1.0
+Section: net
+Priority: optional
+Architecture: all
+Depends: openssh-client, autossh, curl, jq
+Maintainer: Orizon Team <support@orizon.one>
+Homepage: https://orizon.one
+Description: Orizon Zero Trust Connect Agent
+ Enterprise-grade Zero Trust agent that creates secure reverse SSH tunnels
+ to connect edge servers to the Orizon Hub infrastructure.
+ .
+ Features:
+  - Secure SSH reverse tunnels (Ed25519 encryption)
+  - Multi-hub support for redundancy
+  - Automatic reconnection with autossh
+  - System management, terminal access, and HTTPS proxy tunnels
+  - Watchdog service for reliability
+  - No inbound ports required (outbound only)
+ .
+ After installation, run:
+   orizon-setup
+ .
+ For more information: https://docs.orizon.one

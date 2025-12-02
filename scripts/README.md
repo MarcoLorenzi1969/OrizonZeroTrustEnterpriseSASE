@@ -1,36 +1,67 @@
 # Orizon Zero Trust Connect - Scripts di Deployment
 
-Questa directory contiene gli script automatizzati per il deployment di nodi edge nel sistema Orizon Zero Trust Connect.
+Questa directory contiene gli script automatizzati per il deployment e hardening di Orizon Zero Trust Connect.
 
 ## Contenuto della Directory
 
-### 📜 Script Bash
+### Script Bash
 
-1. **`orizon_hub_add_edge.sh`** (Lato Hub Server)
+1. **`hardening_server.sh`** (Hub Server Security)
+   - Script completo di hardening enterprise per Hub servers
+   - Configurazione UFW firewall con IP whitelisting
+   - SSH hardening (chiavi ed25519, no root password)
+   - Fail2ban multi-jail (sshd, aggressive, recidive, nginx)
+   - Protezione database (PostgreSQL, Redis, MongoDB)
+   - Fix console DigitalOcean
+   - Status dashboard completo con tutte le interfacce e regole
+   - Comandi: `install`, `firewall`, `ssh-harden`, `fail2ban`, `console-fix`, `ip-add`, `ip-del`, `status`, `audit`
+
+2. **`orizon_hub_add_edge.sh`** (Lato Hub Server)
    - Registra nuovi nodi edge nel database
    - Genera chiavi SSH (ed25519) e token JWT
    - Configura servizi parametrizzabili (SSH, RDP, VNC)
    - Output verboso con colori per ogni step
    - Funzione `--show-config` per visualizzare la configurazione
 
-2. **`orizon_edge_setup.sh`** (Lato Edge Client)
+3. **`orizon_edge_setup.sh`** (Lato Edge Client)
    - Rileva automaticamente il sistema operativo (Debian/Ubuntu/Kali, Fedora/RHEL, Arch/Manjaro)
    - Installa i servizi richiesti (SSH, RDP, VNC)
    - Configura l'agent Orizon e il servizio systemd
    - Output verboso step-by-step
    - Funzione `--show-config` per visualizzare tunnel locali
 
-### 📚 Documentazione
-
-3. **`ORIZON_SCRIPTS_GUIDE.md`**
-   - Guida completa all'utilizzo degli script (Italiano/Inglese)
-   - Sintassi e parametri dettagliati
-   - Esempi pratici per Kali, Ubuntu, Fedora
-   - Diagrammi architetturali
-   - Sezione troubleshooting
-   - Comandi utili per il debugging
+4. **`orizon_edge_setup_complete.sh`** (Setup Completo Edge)
+   - Versione estesa di orizon_edge_setup.sh
+   - Include configurazione completa con tutti i parametri
+   - Supporto multi-hub
 
 ## Quick Start
+
+### Hardening Hub Server (RACCOMANDATO)
+
+Prima installazione completa:
+
+```bash
+sudo ./hardening_server.sh install
+```
+
+Solo firewall con IP whitelist:
+
+```bash
+sudo ./hardening_server.sh firewall
+```
+
+Visualizza stato sicurezza:
+
+```bash
+sudo ./hardening_server.sh status
+```
+
+Aggiungere IP alla whitelist SSH:
+
+```bash
+sudo ./hardening_server.sh ip-add 203.0.113.50
+```
 
 ### Lato Hub (Orizon Server)
 
@@ -56,7 +87,7 @@ Setup automatico con rilevamento OS:
 ```bash
 ./orizon_edge_setup.sh \
   --name KaliEdge \
-  --hub-ip 46.101.189.126 \
+  --hub-ip 139.59.149.48 \
   --token <JWT_TOKEN_FROM_HUB> \
   --services ssh,rdp,vnc \
   --ssh-pubkey "<PUBLIC_KEY_FROM_HUB>"
@@ -70,13 +101,15 @@ Visualizzare configurazione locale:
 
 ## Caratteristiche Principali
 
-✅ **Parametrizzazione completa** - Servizi SSH/RDP/VNC configurabili
-✅ **Multi-distribuzione** - Supporto Debian, RedHat, Arch families
-✅ **Output verboso** - Step-by-step con codice colore
-✅ **Gestione chiavi SSH** - Generazione automatica ed25519
-✅ **Autenticazione JWT** - Token con validità 365 giorni
-✅ **Integrazione systemd** - Avvio automatico dell'agent
-✅ **Show configuration** - Visualizza tunnel e endpoint WebSocket
+- **Hardening Enterprise** - Firewall, Fail2ban, SSH hardening completo
+- **Parametrizzazione completa** - Servizi SSH/RDP/VNC configurabili
+- **Multi-distribuzione** - Supporto Debian, RedHat, Arch families
+- **Multi-Hub** - Supporto per Hub1 (139.59.149.48) e Hub2 (68.183.219.222)
+- **Output verboso** - Step-by-step con codice colore
+- **Gestione chiavi SSH** - Generazione automatica ed25519
+- **Autenticazione JWT** - Token con validità 365 giorni
+- **Integrazione systemd** - Avvio automatico dell'agent
+- **Show configuration** - Visualizza tunnel e endpoint WebSocket
 
 ## Sistemi Operativi Supportati
 
@@ -112,52 +145,50 @@ Gli script implementano il pattern **Zero Trust Network Access (ZTNA)**:
 ```
 ┌─────────────────┐                    ┌─────────────────┐
 │   EDGE NODE     │                    │   ORIZON HUB    │
-│                 │  WebSocket HTTPS   │                 │
+│                 │  SSH Reverse       │                 │
 │  SSH/RDP/VNC    │◄──────────────────►│  Backend API    │
-│  (localhost)    │   wss://hub/ws    │  PostgreSQL DB  │
+│  (localhost)    │   Tunnel autossh   │  PostgreSQL DB  │
 └─────────────────┘                    └─────────────────┘
 ```
 
 - Nessuna porta pubblica esposta sugli edge
-- Connessioni WebSocket sicure tramite HTTPS
+- Tunnel SSH reverse con autossh (keep-alive)
 - Autenticazione JWT per ogni sessione
-- Tunnel reversi dal hub agli edge
+- Firewall con IP whitelisting sugli Hub
 
 ## Requisiti
 
 ### Hub Server
+- Ubuntu 22.04/24.04 o Debian 12
 - PostgreSQL installato e configurato
-- Backend Orizon in esecuzione
-- Python 3.8+
-- Bash 4.0+
+- Backend Orizon in esecuzione (Docker)
+- UFW firewall
+- Privilegi root per hardening
 
 ### Edge Node
 - Python 3.8+
 - Bash 4.0+
+- autossh installato
 - Connessione internet verso il Hub
 - Privilegi sudo/root per l'installazione
-
-## Documentazione Completa
-
-Per la guida completa con tutti gli esempi, troubleshooting e comandi avanzati:
-
-```bash
-cat ORIZON_SCRIPTS_GUIDE.md
-```
 
 ## Note di Sicurezza
 
 - Le chiavi SSH sono generate con algoritmo **ed25519**
 - I token JWT hanno validità di **365 giorni**
-- Le connessioni usano **WebSocket sicuri (wss://)**
-- L'agent Orizon gira come servizio systemd con restart automatico
-- Supporto chiavi SSH pubbliche per autenticazione passwordless
+- SSH limitato solo a IP autorizzati (whitelist UFW)
+- Database protetti con regole UFW DENY
+- Fail2ban con ban progressivo (10min → 1h → 1 settimana)
+- Controllo accessi console DigitalOcean con password root
 
-## Supporto e Troubleshooting
+## Script Obsoleti
 
-Per problemi comuni, consultare la sezione **Troubleshooting** in `ORIZON_SCRIPTS_GUIDE.md`.
+Gli script precedenti di hardening sono stati archiviati in `backup_code/obsolete_scripts_2025-12-03/`:
+- `orizon_deploy_hardening.sh` - Sostituito da hardening_server.sh
+- `orizon_edge_hardening.sh` - Sostituito da hardening_server.sh
+- `manual_tunnel.sh` - Non più necessario
 
 ---
 
-**Orizon Zero Trust Connect v1.1**
-Generated: 2025-11-11
+**Orizon Zero Trust Connect v2.1.1**
+Updated: 2025-12-03

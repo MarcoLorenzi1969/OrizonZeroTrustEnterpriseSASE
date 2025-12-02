@@ -17,6 +17,7 @@ from app.api.v1.endpoints import (
     terminal,
     network,
     user_management,
+    sso,
 )
 
 api_router = APIRouter()
@@ -42,3 +43,6 @@ api_router.include_router(terminal.router, prefix="/terminal", tags=["Terminal"]
 
 # User management
 api_router.include_router(user_management.router, tags=["User Management"])
+
+# SSO endpoints
+api_router.include_router(sso.router, prefix="/sso", tags=["SSO"])

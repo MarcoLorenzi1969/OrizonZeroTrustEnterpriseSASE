@@ -45,11 +45,11 @@ class PasswordChangeRequest(BaseModel):
 class UserResponse(BaseModel):
     id: str
     email: str
-    full_name: str
+    full_name: Optional[str] = None
     role: str
     is_active: bool
     created_at: datetime
-    last_login: Optional[datetime]
+    last_login: Optional[datetime] = None
 
 
 class PermissionGrantRequest(BaseModel):

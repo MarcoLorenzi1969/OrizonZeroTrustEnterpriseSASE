@@ -16,6 +16,12 @@ export default defineConfig({
         target: 'ws://localhost:8000',
         ws: true,
       },
+      // RDP Proxy WebSocket
+      '/rdp': {
+        target: 'ws://localhost:8766',
+        ws: true,
+        changeOrigin: true,
+      },
     },
   },
   build: {

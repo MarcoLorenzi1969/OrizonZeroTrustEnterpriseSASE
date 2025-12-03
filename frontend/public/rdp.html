@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orizon RDP - Remote Desktop</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
+            color: #e2e8f0;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 20px;
+            background: rgba(30, 41, 59, 0.95);
+            border-bottom: 1px solid #334155;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo {
+            font-size: 18px;
+            font-weight: 600;
+            color: #3b82f6;
+        }
+
+        .node-name {
+            font-size: 14px;
+            color: #94a3b8;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 12px;
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 9999px;
+            font-size: 12px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #475569;
+        }
+
+        .status-dot.connecting {
+            background: #eab308;
+            animation: pulse 1.5s infinite;
+        }
+
+        .status-dot.connected {
+            background: #22c55e;
+        }
+
+        .status-dot.error {
+            background: #ef4444;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .header-right {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+        }
+
+        .btn-secondary {
+            background: #334155;
+            color: #e2e8f0;
+        }
+
+        .btn-secondary:hover {
+            background: #475569;
+        }
+
+        .btn-danger {
+            background: #dc2626;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #b91c1c;
+        }
+
+        /* Settings Panel */
+        .settings-panel {
+            display: none;
+            padding: 16px 20px;
+            background: rgba(30, 41, 59, 0.9);
+            border-bottom: 1px solid #334155;
+        }
+
+        .settings-panel.visible {
+            display: block;
+        }
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .form-group label {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .form-group input,
+        .form-group select {
+            padding: 8px 12px;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            background: #1e293b;
+            color: #e2e8f0;
+            font-size: 14px;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+
+        /* Canvas Container */
+        .canvas-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0f172a;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #rdpCanvas {
+            max-width: 100%;
+            max-height: 100%;
+            image-rendering: pixelated;
+            cursor: default;
+        }
+
+        .connection-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 23, 42, 0.95);
+        }
+
+        .connection-overlay.hidden {
+            display: none;
+        }
+
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid #334155;
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .connection-message {
+            margin-top: 16px;
+            font-size: 14px;
+            color: #94a3b8;
+        }
+
+        /* Footer */
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 20px;
+            background: rgba(30, 41, 59, 0.95);
+            border-top: 1px solid #334155;
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .footer-stats {
+            display: flex;
+            gap: 16px;
+        }
+
+        /* Debug Panel */
+        .debug-panel {
+            display: none;
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 12px 20px;
+            background: #0f172a;
+            border-top: 1px solid #334155;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 11px;
+        }
+
+        .debug-panel.visible {
+            display: block;
+        }
+
+        .debug-entry {
+            padding: 2px 0;
+            color: #94a3b8;
+        }
+
+        .debug-entry.info {
+            color: #3b82f6;
+        }
+
+        .debug-entry.success {
+            color: #22c55e;
+        }
+
+        .debug-entry.error {
+            color: #ef4444;
+        }
+
+        .debug-entry.warn {
+            color: #eab308;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-left">
+                <span class="logo">Orizon RDP</span>
+                <span class="node-name" id="nodeName">-</span>
+                <div class="status-indicator">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">Disconnected</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <button class="btn btn-secondary" id="btnSettings" title="Settings">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                    Settings
+                </button>
+                <button class="btn btn-secondary" id="btnDebug" title="Toggle Debug">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    </svg>
+                    Debug
+                </button>
+                <button class="btn btn-secondary" id="btnFullscreen" title="Fullscreen">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 3 21 3 21 9"></polyline>
+                        <polyline points="9 21 3 21 3 15"></polyline>
+                        <line x1="21" y1="3" x2="14" y2="10"></line>
+                        <line x1="3" y1="21" x2="10" y2="14"></line>
+                    </svg>
+                </button>
+                <button class="btn btn-primary" id="btnConnect">Connect</button>
+            </div>
+        </div>
+
+        <!-- Settings Panel -->
+        <div class="settings-panel" id="settingsPanel">
+            <div class="settings-grid">
+                <div class="form-group">
+                    <label>RDP Host</label>
+                    <input type="text" id="settingHost" placeholder="192.168.1.100">
+                </div>
+                <div class="form-group">
+                    <label>Port</label>
+                    <input type="number" id="settingPort" value="3389">
+                </div>
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="settingUsername" placeholder="Administrator">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="settingPassword">
+                </div>
+                <div class="form-group">
+                    <label>Domain</label>
+                    <input type="text" id="settingDomain" placeholder="WORKGROUP">
+                </div>
+                <div class="form-group">
+                    <label>Resolution</label>
+                    <select id="settingResolution">
+                        <option value="1024x768">1024x768</option>
+                        <option value="1280x720" selected>1280x720 (HD)</option>
+                        <option value="1366x768">1366x768</option>
+                        <option value="1920x1080">1920x1080 (Full HD)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Canvas Container -->
+        <div class="canvas-container">
+            <canvas id="rdpCanvas" width="1280" height="720" tabindex="0"></canvas>
+            <div class="connection-overlay" id="overlay">
+                <div class="spinner"></div>
+                <div class="connection-message" id="overlayMessage">Connecting to remote desktop...</div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <div class="footer-stats">
+                <span>Resolution: <span id="statResolution">1280x720</span></span>
+                <span>Received: <span id="statBytes">0 KB</span></span>
+                <span>Frames: <span id="statFrames">0</span></span>
+            </div>
+            <div>Orizon Zero Trust Connect - RDP Client v1.0</div>
+        </div>
+
+        <!-- Debug Panel -->
+        <div class="debug-panel" id="debugPanel"></div>
+    </div>
+
+    <script>
+        // Configuration
+        const CONFIG = {
+            wsUrl: null, // Will be set from URL params or default
+            width: 1280,
+            height: 720,
+            colorDepth: 24
+        };
+
+        // State
+        let ws = null;
+        let connected = false;
+        let sessionId = null;
+        let stats = { bytes: 0, frames: 0 };
+
+        // DOM Elements
+        const canvas = document.getElementById('rdpCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+        const overlay = document.getElementById('overlay');
+        const overlayMessage = document.getElementById('overlayMessage');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const nodeName = document.getElementById('nodeName');
+        const debugPanel = document.getElementById('debugPanel');
+        const settingsPanel = document.getElementById('settingsPanel');
+
+        // Parse URL parameters
+        function parseUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                nodeId: params.get('node_id') || params.get('nodeId'),
+                nodeName: params.get('node_name') || params.get('nodeName') || 'Remote Desktop',
+                host: params.get('host') || params.get('rdp_host'),
+                port: parseInt(params.get('port') || params.get('rdp_port')) || 3389,
+                tunnelPort: params.get('tunnel_port') || params.get('tunnelPort'),
+                token: params.get('token'),
+                wsUrl: params.get('ws_url') || params.get('wsUrl')
+            };
+        }
+
+        // Debug logging
+        function debug(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `debug-entry ${type}`;
+            entry.textContent = `[${new Date().toISOString().split('T')[1].split('.')[0]}] ${message}`;
+            debugPanel.appendChild(entry);
+            debugPanel.scrollTop = debugPanel.scrollHeight;
+            console.log(`[RDP ${type.toUpperCase()}]`, message);
+        }
+
+        // Update status
+        function setStatus(status, message) {
+            statusDot.className = `status-dot ${status}`;
+            statusText.textContent = message;
+        }
+
+        // Initialize canvas
+        function initCanvas() {
+            const res = document.getElementById('settingResolution').value.split('x');
+            CONFIG.width = parseInt(res[0]);
+            CONFIG.height = parseInt(res[1]);
+
+            canvas.width = CONFIG.width;
+            canvas.height = CONFIG.height;
+
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+
+            document.getElementById('statResolution').textContent = `${CONFIG.width}x${CONFIG.height}`;
+            debug(`Canvas initialized: ${CONFIG.width}x${CONFIG.height}`);
+        }
+
+        // Connect to RDP proxy
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                debug('Already connected', 'warn');
+                return;
+            }
+
+            const params = parseUrlParams();
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = params.wsUrl || `${wsProtocol}//${window.location.hostname}:8766/rdp`;
+
+            initCanvas();
+            setStatus('connecting', 'Connecting...');
+            overlay.classList.remove('hidden');
+            overlayMessage.textContent = 'Connecting to RDP proxy...';
+
+            debug(`Connecting to ${wsUrl}`);
+
+            try {
+                ws = new WebSocket(wsUrl);
+                ws.binaryType = 'arraybuffer';
+
+                ws.onopen = () => {
+                    debug('WebSocket connected', 'success');
+                    overlayMessage.textContent = 'Authenticating...';
+
+                    // Send connect request
+                    const host = document.getElementById('settingHost').value || params.host || 'localhost';
+                    const port = parseInt(document.getElementById('settingPort').value) || params.port || 3389;
+
+                    ws.send(JSON.stringify({
+                        type: 'connect',
+                        token: params.token || localStorage.getItem('access_token') || 'test-token',
+                        nodeId: params.nodeId || 'test-node',
+                        config: {
+                            host: host,
+                            port: params.tunnelPort || port,
+                            width: CONFIG.width,
+                            height: CONFIG.height,
+                            colorDepth: CONFIG.colorDepth,
+                            username: document.getElementById('settingUsername').value || 'Administrator',
+                            password: document.getElementById('settingPassword').value || '',
+                            domain: document.getElementById('settingDomain').value || ''
+                        }
+                    }));
+                };
+
+                ws.onmessage = handleMessage;
+
+                ws.onerror = (error) => {
+                    debug(`WebSocket error: ${error.message || 'Unknown error'}`, 'error');
+                    setStatus('error', 'Connection Error');
+                };
+
+                ws.onclose = (event) => {
+                    debug(`WebSocket closed: ${event.code} ${event.reason}`, 'warn');
+                    connected = false;
+                    setStatus('', 'Disconnected');
+                    overlay.classList.remove('hidden');
+                    overlayMessage.textContent = 'Connection closed';
+                    document.getElementById('btnConnect').textContent = 'Connect';
+                };
+
+            } catch (error) {
+                debug(`Connection error: ${error.message}`, 'error');
+                setStatus('error', 'Error');
+            }
+        }
+
+        // Handle incoming messages
+        function handleMessage(event) {
+            if (typeof event.data === 'string') {
+                // JSON message
+                try {
+                    const message = JSON.parse(event.data);
+                    handleJsonMessage(message);
+                } catch (e) {
+                    debug(`JSON parse error: ${e.message}`, 'error');
+                }
+            } else {
+                // Binary data (bitmap)
+                handleBinaryMessage(event.data);
+            }
+        }
+
+        // Handle JSON messages
+        function handleJsonMessage(message) {
+            switch (message.type) {
+                case 'connected':
+                    connected = true;
+                    sessionId = message.sessionId;
+                    setStatus('connected', 'Connected');
+                    overlay.classList.add('hidden');
+                    document.getElementById('btnConnect').textContent = 'Disconnect';
+                    debug(`RDP session established: ${sessionId}`, 'success');
+                    canvas.focus();
+                    break;
+
+                case 'error':
+                    debug(`Server error: ${message.message}`, 'error');
+                    setStatus('error', 'Error');
+                    overlayMessage.textContent = message.message;
+                    break;
+
+                case 'close':
+                    connected = false;
+                    setStatus('', 'Disconnected');
+                    debug('Session closed by server');
+                    break;
+
+                default:
+                    debug(`Unknown message type: ${message.type}`, 'warn');
+            }
+        }
+
+        // Handle binary bitmap messages
+        function handleBinaryMessage(buffer) {
+            const view = new DataView(buffer);
+            const type = view.getUint8(0);
+
+            if (type === 0x01) {
+                // Bitmap update
+                const destLeft = view.getUint16(1, true);
+                const destTop = view.getUint16(3, true);
+                const width = view.getUint16(5, true);
+                const height = view.getUint16(7, true);
+                const bpp = view.getUint8(9);
+                const isCompressed = view.getUint8(10) === 1;
+
+                const bitmapData = new Uint8Array(buffer, 11);
+
+                // Create ImageData
+                const imageData = ctx.createImageData(width, height);
+
+                // Decode bitmap
+                if (isCompressed) {
+                    decodeBitmapRLE(bitmapData, imageData.data, width, height, bpp);
+                } else {
+                    decodeBitmapRaw(bitmapData, imageData.data, width, height, bpp);
+                }
+
+                // Draw to canvas
+                ctx.putImageData(imageData, destLeft, destTop);
+
+                // Update stats
+                stats.bytes += buffer.byteLength;
+                stats.frames++;
+                document.getElementById('statBytes').textContent = (stats.bytes / 1024).toFixed(1) + ' KB';
+                document.getElementById('statFrames').textContent = stats.frames;
+            }
+        }
+
+        // Decode raw bitmap
+        function decodeBitmapRaw(src, dest, width, height, bpp) {
+            let srcOffset = 0;
+            let destOffset = 0;
+
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    if (bpp === 32) {
+                        dest[destOffset] = src[srcOffset + 2];
+                        dest[destOffset + 1] = src[srcOffset + 1];
+                        dest[destOffset + 2] = src[srcOffset];
+                        dest[destOffset + 3] = 255;
+                        srcOffset += 4;
+                    } else if (bpp === 24) {
+                        dest[destOffset] = src[srcOffset + 2];
+                        dest[destOffset + 1] = src[srcOffset + 1];
+                        dest[destOffset + 2] = src[srcOffset];
+                        dest[destOffset + 3] = 255;
+                        srcOffset += 3;
+                    } else if (bpp === 16) {
+                        const pixel = src[srcOffset] | (src[srcOffset + 1] << 8);
+                        dest[destOffset] = ((pixel >> 11) & 0x1F) << 3;
+                        dest[destOffset + 1] = ((pixel >> 5) & 0x3F) << 2;
+                        dest[destOffset + 2] = (pixel & 0x1F) << 3;
+                        dest[destOffset + 3] = 255;
+                        srcOffset += 2;
+                    }
+                    destOffset += 4;
+                }
+            }
+        }
+
+        // Decode RLE compressed bitmap
+        function decodeBitmapRLE(src, dest, width, height, bpp) {
+            let srcOffset = 0;
+            let destOffset = 0;
+            const totalPixels = width * height;
+
+            while (destOffset < totalPixels * 4 && srcOffset < src.length) {
+                const header = src[srcOffset++];
+                const isCompressed = (header & 0x80) !== 0;
+                let count = (header & 0x7F) + 1;
+
+                if (isCompressed) {
+                    const r = src[srcOffset++] || 0;
+                    const g = src[srcOffset++] || 0;
+                    const b = src[srcOffset++] || 0;
+
+                    for (let i = 0; i < count && destOffset < totalPixels * 4; i++) {
+                        dest[destOffset++] = r;
+                        dest[destOffset++] = g;
+                        dest[destOffset++] = b;
+                        dest[destOffset++] = 255;
+                    }
+                } else {
+                    for (let i = 0; i < count && destOffset < totalPixels * 4; i++) {
+                        dest[destOffset++] = src[srcOffset++] || 0;
+                        dest[destOffset++] = src[srcOffset++] || 0;
+                        dest[destOffset++] = src[srcOffset++] || 0;
+                        dest[destOffset++] = 255;
+                    }
+                }
+            }
+        }
+
+        // Send mouse event
+        function sendMouse(eventType, x, y, button = 0) {
+            if (!ws || ws.readyState !== WebSocket.OPEN || !connected) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = CONFIG.width / rect.width;
+            const scaleY = CONFIG.height / rect.height;
+            const scaledX = Math.round((x - rect.left) * scaleX);
+            const scaledY = Math.round((y - rect.top) * scaleY);
+
+            ws.send(JSON.stringify({
+                type: 'mouse',
+                event: eventType,
+                x: scaledX,
+                y: scaledY,
+                button: button
+            }));
+        }
+
+        // Send keyboard event
+        function sendKey(eventType, keyCode, scanCode, isExtended = false) {
+            if (!ws || ws.readyState !== WebSocket.OPEN || !connected) return;
+
+            ws.send(JSON.stringify({
+                type: 'keyboard',
+                event: eventType,
+                keyCode: keyCode,
+                scanCode: scanCode,
+                isExtended: isExtended
+            }));
+        }
+
+        // Disconnect
+        function disconnect() {
+            if (ws) {
+                ws.send(JSON.stringify({ type: 'disconnect' }));
+                ws.close();
+                ws = null;
+            }
+            connected = false;
+            setStatus('', 'Disconnected');
+        }
+
+        // Event listeners
+        canvas.addEventListener('mousemove', (e) => sendMouse('move', e.clientX, e.clientY));
+        canvas.addEventListener('mousedown', (e) => { e.preventDefault(); sendMouse('down', e.clientX, e.clientY, e.button); });
+        canvas.addEventListener('mouseup', (e) => { e.preventDefault(); sendMouse('up', e.clientX, e.clientY, e.button); });
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            if (!ws || ws.readyState !== WebSocket.OPEN || !connected) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = CONFIG.width / rect.width;
+            const scaleY = CONFIG.height / rect.height;
+
+            ws.send(JSON.stringify({
+                type: 'wheel',
+                x: Math.round((e.clientX - rect.left) * scaleX),
+                y: Math.round((e.clientY - rect.top) * scaleY),
+                deltaX: e.deltaX,
+                deltaY: e.deltaY
+            }));
+        });
+
+        canvas.addEventListener('keydown', (e) => {
+            e.preventDefault();
+            sendKey('down', e.keyCode, e.which, e.location === 2);
+        });
+
+        canvas.addEventListener('keyup', (e) => {
+            e.preventDefault();
+            sendKey('up', e.keyCode, e.which, e.location === 2);
+        });
+
+        // Button handlers
+        document.getElementById('btnConnect').addEventListener('click', () => {
+            if (connected) {
+                disconnect();
+            } else {
+                connect();
+            }
+        });
+
+        document.getElementById('btnSettings').addEventListener('click', () => {
+            settingsPanel.classList.toggle('visible');
+        });
+
+        document.getElementById('btnDebug').addEventListener('click', () => {
+            debugPanel.classList.toggle('visible');
+        });
+
+        document.getElementById('btnFullscreen').addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        // Initialize on load
+        window.addEventListener('load', () => {
+            const params = parseUrlParams();
+            nodeName.textContent = params.nodeName;
+
+            if (params.host) {
+                document.getElementById('settingHost').value = params.host;
+            }
+            if (params.port) {
+                document.getElementById('settingPort').value = params.port;
+            }
+
+            initCanvas();
+            debug('Orizon RDP Client initialized');
+
+            // Auto-connect if token is provided
+            if (params.token) {
+                debug('Token provided, auto-connecting...');
+                setTimeout(connect, 500);
+            }
+        });
+    </script>
+</body>
+</html>

@@ -138,6 +138,28 @@ services:
     networks:
       - orizon-network
 
+  # RDP Proxy Service (WebSocket-to-RDP bridge)
+  rdp-proxy:
+    build:
+      context: ./rdp-proxy
+      dockerfile: Dockerfile
+    container_name: orizon-rdp-proxy
+    restart: unless-stopped
+    environment:
+      RDP_PROXY_PORT: 8766
+      JWT_SECRET_KEY: ${SECRET_KEY:-dev-secret-key}
+      RDP_MAX_SESSIONS: 50
+      LOG_LEVEL: info
+    ports:
+      - "8766:8766"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8766/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - orizon-network
+
 volumes:
   postgres_data:
     driver: local

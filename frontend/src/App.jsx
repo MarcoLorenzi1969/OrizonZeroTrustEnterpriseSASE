@@ -18,6 +18,7 @@ import NodesPage from './pages/NodesPage'
 import GroupsPage from './pages/GroupsPage'
 import UsersPage from './pages/UsersPage'
 import TunnelsDashboard from './pages/TunnelsDashboard'
+import RDPTestPage from './pages/RDPTestPage'
 
 // Layout
 import DashboardLayout from './components/layout/DashboardLayout'
@@ -98,6 +99,9 @@ function App() {
 
         {/* Protected Routes */}
         <Route element={<PrivateRoute />}>
+          {/* RDP Test Page (standalone, no layout) */}
+          <Route path="/rdp-test" element={<RDPTestPage />} />
+
           <Route element={<DashboardLayout />}>
             {/* Routes accessible to all authenticated users */}
             <Route path="/dashboard" element={<DashboardPage />} />

@@ -636,7 +636,12 @@ async def node_heartbeat(
 
     # Update node status and info
     node.status = NodeStatus.ONLINE
-    node.last_heartbeat = heartbeat.timestamp or datetime.utcnow()
+    # Ensure timestamp is timezone-naive for database compatibility
+    if heartbeat.timestamp:
+        ts = heartbeat.timestamp.replace(tzinfo=None) if heartbeat.timestamp.tzinfo else heartbeat.timestamp
+    else:
+        ts = datetime.utcnow()
+    node.last_heartbeat = ts
 
     if heartbeat.agent_version:
         node.agent_version = heartbeat.agent_version
@@ -695,7 +700,12 @@ async def update_node_metrics(
         node.disk_gb = metrics.disk_gb
 
     # Also update last heartbeat since metrics implies alive
-    node.last_heartbeat = metrics.timestamp or datetime.utcnow()
+    # Ensure timestamp is timezone-naive for database compatibility
+    if metrics.timestamp:
+        ts = metrics.timestamp.replace(tzinfo=None) if metrics.timestamp.tzinfo else metrics.timestamp
+    else:
+        ts = datetime.utcnow()
+    node.last_heartbeat = ts
     node.status = NodeStatus.ONLINE
 
     await db.commit()

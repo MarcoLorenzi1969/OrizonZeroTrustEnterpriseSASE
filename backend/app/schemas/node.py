@@ -179,6 +179,8 @@ class NodeMetricsUpdate(BaseModel):
     network_rx_bytes: Optional[int] = None
     network_tx_bytes: Optional[int] = None
     active_connections: Optional[int] = None
+    active_processes: Optional[int] = None
+    top_processes: Optional[List[Dict[str, Any]]] = None  # Top 5 processes by CPU
     timestamp: Optional[datetime] = None
 
 

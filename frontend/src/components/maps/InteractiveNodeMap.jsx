@@ -2,6 +2,9 @@ import { useEffect, useState, useRef, memo } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMap, CircleMarker } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import 'leaflet.markercluster/dist/MarkerCluster.css'
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
+import MarkerClusterGroup from 'react-leaflet-cluster'
 import { Globe, Cpu, HardDrive, MemoryStick, Server, Wifi, Building2, MapPin, Network } from 'lucide-react'
 
 // Fix for default markers in React-Leaflet
@@ -13,21 +16,36 @@ L.Icon.Default.mergeOptions({
 })
 
 // Custom icon for nodes
-const createNodeIcon = (status) => {
-  const color = status === 'online' ? '#22c55e' : '#64748b'
-  const pulseClass = status === 'online' ? 'animate-pulse' : ''
+const createNodeIcon = (status, isHub = false, isHighlighted = false) => {
+  // Hubs use blue/cyan color, edges use green, highlighted uses orange/yellow
+  let color
+  if (isHighlighted) {
+    color = '#f59e0b' // Amber/orange for highlighted
+  } else if (isHub) {
+    color = status === 'online' ? '#06b6d4' : '#64748b'  // Cyan for hubs
+  } else {
+    color = status === 'online' ? '#22c55e' : '#64748b'  // Green for edges
+  }
+
+  // Highlighted nodes are bigger and have stronger animation
+  const baseSize = isHub ? 32 : 24
+  const size = isHighlighted ? baseSize + 16 : baseSize
+  const innerSize = isHighlighted ? (isHub ? 32 : 28) : (isHub ? 24 : 16)
 
   return L.divIcon({
     className: 'custom-node-marker',
     html: `
-      <div style="position: relative; width: 24px; height: 24px;">
-        ${status === 'online' ? `<div style="position: absolute; width: 24px; height: 24px; background: ${color}; border-radius: 50%; opacity: 0.3; animation: pulse 2s infinite;"></div>` : ''}
-        <div style="position: absolute; top: 4px; left: 4px; width: 16px; height: 16px; background: ${color}; border-radius: 50%; border: 2px solid #1e293b; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>
+      <div style="position: relative; width: ${size}px; height: ${size}px;">
+        ${(status === 'online' || isHighlighted) ? `<div style="position: absolute; width: ${size}px; height: ${size}px; background: ${color}; border-radius: ${isHub ? '6px' : '50%'}; opacity: ${isHighlighted ? '0.5' : '0.3'}; animation: pulse ${isHighlighted ? '0.5s' : '2s'} infinite;"></div>` : ''}
+        ${isHighlighted ? `<div style="position: absolute; width: ${size + 8}px; height: ${size + 8}px; top: -4px; left: -4px; border: 3px solid ${color}; border-radius: 50%; animation: ping 1s infinite;"></div>` : ''}
+        <div style="position: absolute; top: ${(size-innerSize)/2}px; left: ${(size-innerSize)/2}px; width: ${innerSize}px; height: ${innerSize}px; background: ${color}; border-radius: ${isHub ? '4px' : '50%'}; border: ${isHighlighted ? '3px' : '2px'} solid ${isHighlighted ? '#fff' : '#1e293b'}; box-shadow: 0 ${isHighlighted ? '4' : '2'}px ${isHighlighted ? '8' : '4'}px rgba(0,0,0,${isHighlighted ? '0.5' : '0.3'}); display: flex; align-items: center; justify-content: center;">
+          ${isHub ? '<span style="color: white; font-size: 10px; font-weight: bold;">H</span>' : ''}
+        </div>
       </div>
     `,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-    popupAnchor: [0, -12],
+    iconSize: [size, size],
+    iconAnchor: [size/2, size/2],
+    popupAnchor: [0, -size/2],
   })
 }
 
@@ -183,23 +201,32 @@ const NodeDetailsPanel = memo(function NodeDetailsPanel({ node, onClose }) {
 })
 
 // Main Interactive Map Component
-function InteractiveNodeMap({ nodes = [], onNodeSelect }) {
+function InteractiveNodeMap({ nodes = [], onNodeSelect, highlightedNodeId = null }) {
   const [selectedNode, setSelectedNode] = useState(null)
   const [mapReady, setMapReady] = useState(false)
   const mapRef = useRef(null)
 
-  // Process nodes to get locations
-  const nodeLocations = nodes.map((node, index) => {
-    // Use geo data if available, otherwise use defaults
-    const lat = node.geo?.lat || node.latitude || getDefaultCoords(node, index)[0]
-    const lon = node.geo?.lon || node.longitude || getDefaultCoords(node, index)[1]
+  // Process nodes - separate those with REAL geo data from those without
+  const nodesWithGeo = nodes.filter(node => {
+    // Only include nodes that have REAL geolocation data (from GeoLite2)
+    const hasRealGeo = node.geo && node.geo.lat && node.geo.lon
+    const hasCoords = node.latitude && node.longitude
+    return hasRealGeo || hasCoords
+  }).map(node => ({
+    ...node,
+    latitude: node.geo?.lat || node.latitude,
+    longitude: node.geo?.lon || node.longitude,
+  }))
 
-    return {
-      ...node,
-      latitude: lat,
-      longitude: lon,
-    }
-  }).filter(node => node.latitude && node.longitude)
+  // Nodes without geolocation (will be shown in a separate list)
+  const nodesWithoutGeo = nodes.filter(node => {
+    const hasRealGeo = node.geo && node.geo.lat && node.geo.lon
+    const hasCoords = node.latitude && node.longitude
+    return !hasRealGeo && !hasCoords
+  })
+
+  // Use nodesWithGeo for the map (only real locations)
+  const nodeLocations = nodesWithGeo
 
   const handleMarkerClick = (node) => {
     setSelectedNode(node)
@@ -226,8 +253,12 @@ function InteractiveNodeMap({ nodes = [], onNodeSelect }) {
         </h2>
         <div className="flex items-center gap-4 text-sm">
           <div className="flex items-center gap-2">
+            <span className="w-4 h-4 rounded bg-cyan-500 flex items-center justify-center text-[8px] font-bold text-white">H</span>
+            <span className="text-slate-400">Hub</span>
+          </div>
+          <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-green-500"></span>
-            <span className="text-slate-400">Online</span>
+            <span className="text-slate-400">Edge Online</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-slate-500"></span>
@@ -257,33 +288,70 @@ function InteractiveNodeMap({ nodes = [], onNodeSelect }) {
             <FitBounds locations={nodeLocations} />
           )}
 
-          {/* Node Markers */}
-          {nodeLocations.map((node) => (
-            <Marker
-              key={node.id}
-              position={[node.latitude, node.longitude]}
-              icon={createNodeIcon(node.status)}
-              eventHandlers={{
-                click: () => handleMarkerClick(node),
-              }}
-            >
-              <Popup className="custom-popup">
-                <div className="bg-slate-800 text-white p-2 rounded min-w-[200px]">
-                  <div className="font-semibold mb-1">{node.name}</div>
-                  <div className="text-xs text-slate-400">
-                    <div>IP: {node.public_ip || node.private_ip || 'N/A'}</div>
-                    {node.geo && (
-                      <>
-                        <div>City: {node.geo.city}</div>
-                        <div>ISP: {node.geo.isp}</div>
-                        <div>AS: {node.geo.as}</div>
-                      </>
-                    )}
+          {/* Node Markers with Spiderfy for overlapping nodes */}
+          <MarkerClusterGroup
+            chunkedLoading
+            spiderfyOnMaxZoom={true}
+            showCoverageOnHover={false}
+            zoomToBoundsOnClick={false}
+            spiderfyDistanceMultiplier={2}
+            maxClusterRadius={40}
+            disableClusteringAtZoom={18}
+            iconCreateFunction={(cluster) => {
+              const count = cluster.getChildCount()
+              return L.divIcon({
+                html: `<div style="
+                  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+                  width: 36px;
+                  height: 36px;
+                  border-radius: 50%;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  color: white;
+                  font-weight: bold;
+                  font-size: 14px;
+                  border: 3px solid #1e293b;
+                  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+                  cursor: pointer;
+                ">${count}</div>`,
+                className: 'custom-cluster-icon',
+                iconSize: L.point(36, 36),
+              })
+            }}
+          >
+            {nodeLocations.map((node) => (
+              <Marker
+                key={node.id}
+                position={[node.latitude, node.longitude]}
+                icon={createNodeIcon(
+                  node.status,
+                  node.is_hub || node.node_type === 'hub',
+                  highlightedNodeId === node.id
+                )}
+                zIndexOffset={highlightedNodeId === node.id ? 1000 : 0}
+                eventHandlers={{
+                  click: () => handleMarkerClick(node),
+                }}
+              >
+                <Popup className="custom-popup">
+                  <div className="bg-slate-800 text-white p-2 rounded min-w-[200px]">
+                    <div className="font-semibold mb-1">{node.name}</div>
+                    <div className="text-xs text-slate-400">
+                      <div>IP: {node.public_ip || node.private_ip || 'N/A'}</div>
+                      {node.geo && (
+                        <>
+                          <div>City: {node.geo.city}</div>
+                          <div>ISP: {node.geo.isp}</div>
+                          <div>AS: {node.geo.as}</div>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </Popup>
-            </Marker>
-          ))}
+                </Popup>
+              </Marker>
+            ))}
+          </MarkerClusterGroup>
         </MapContainer>
 
         {/* Node Details Panel */}
@@ -294,6 +362,29 @@ function InteractiveNodeMap({ nodes = [], onNodeSelect }) {
       <div className="px-4 py-2 bg-slate-700/50 text-center text-xs text-slate-400">
         Use mouse wheel to zoom, drag to pan. Click on markers for details.
       </div>
+
+      {/* Nodes without geolocation */}
+      {nodesWithoutGeo.length > 0 && (
+        <div className="px-4 py-3 border-t border-slate-700 bg-slate-800/50">
+          <h4 className="text-xs font-semibold text-amber-400 uppercase mb-2 flex items-center gap-2">
+            <MapPin className="w-4 h-4" />
+            Nodes without geolocation ({nodesWithoutGeo.length})
+            <span className="text-slate-500 font-normal normal-case ml-2">- Missing public IP</span>
+          </h4>
+          <div className="flex flex-wrap gap-2">
+            {nodesWithoutGeo.map(node => (
+              <div
+                key={node.id}
+                className="flex items-center gap-2 px-3 py-1.5 bg-slate-700/50 rounded-lg border border-slate-600"
+              >
+                <span className={`w-2 h-2 rounded-full ${node.status === 'online' ? 'bg-green-500' : 'bg-slate-500'}`}></span>
+                <span className="text-sm text-slate-300">{node.name}</span>
+                <span className="text-xs text-slate-500 font-mono">{node.private_ip || 'N/A'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

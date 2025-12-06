@@ -699,6 +699,10 @@ async def update_node_metrics(
     if metrics.disk_gb:
         node.disk_gb = metrics.disk_gb
 
+    # Update public IP if provided (for geolocation)
+    if metrics.public_ip:
+        node.public_ip = metrics.public_ip
+
     # Also update last heartbeat since metrics implies alive
     # Ensure timestamp is timezone-naive for database compatibility
     if metrics.timestamp:
@@ -1184,9 +1188,47 @@ async def https_proxy_path(
 
 # === Geolocation Endpoints ===
 
+# Import GeoLocation service
+from app.services.geolocation_service import get_geolocation_service, lookup_ip
+
 # In-memory cache for geolocation data (TTL: 6 hours)
 _geo_cache = {}
 GEO_CACHE_TTL = 6 * 60 * 60  # 6 hours in seconds
+
+
+def _get_geolocation(ip_address: str) -> dict:
+    """
+    Get geolocation for an IP using local GeoLite2 database.
+    Falls back to ip-api.com if local database unavailable.
+    """
+    geo_service = get_geolocation_service()
+
+    if geo_service.is_available():
+        # Use local GeoLite2 database (fast, no rate limits)
+        geo_data = lookup_ip(ip_address)
+        # Add regionName for compatibility
+        geo_data["regionName"] = geo_data.get("region")
+        geo_data["as"] = f"AS{geo_data.get('asn')}" if geo_data.get("asn") else None
+        geo_data["asname"] = geo_data.get("org")
+        geo_data["query"] = ip_address
+        return geo_data
+    else:
+        # Fallback to ip-api.com
+        import httpx
+        try:
+            with httpx.Client() as client:
+                response = client.get(
+                    f"http://ip-api.com/json/{ip_address}?fields=66846719",
+                    timeout=10.0
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    data["source"] = "ip-api.com"
+                    return data
+        except Exception as e:
+            logger.warning(f"ip-api.com fallback failed: {e}")
+
+        return {"status": "fail", "message": "Geolocation service unavailable"}
 
 
 @router.get("/{node_id}/geolocation")
@@ -1198,14 +1240,16 @@ async def get_node_geolocation(
     """
     Get geolocation data for a node based on its public IP.
 
+    Uses local GeoLite2 database for fast, unlimited lookups.
+    Falls back to ip-api.com if local database unavailable.
+
     Returns:
     - city, regionName, country, countryCode
     - lat, lon (coordinates)
     - isp, org (provider info)
-    - as, asname (Autonomous System info)
+    - asn, asname (Autonomous System info)
     - timezone
-
-    Data is cached for 6 hours to respect API rate limits.
+    - accuracy_radius_km (estimated accuracy)
     """
     # Get node
     result = await db.execute(select(Node).where(Node.id == node_id))
@@ -1251,54 +1295,28 @@ async def get_node_geolocation(
                 "cache_age_seconds": int(now - cached_time)
             }
 
-    # Fetch from ip-api.com
-    try:
-        async with httpx.AsyncClient() as client:
-            # Request all fields: status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,asname,query
-            response = await client.get(
-                f"http://ip-api.com/json/{public_ip}?fields=66846719",
-                timeout=10.0
-            )
+    # Get geolocation (local database or fallback)
+    geo_data = _get_geolocation(public_ip)
 
-            if response.status_code != 200:
-                logger.error(f"ip-api.com error: {response.status_code}")
-                return {
-                    "node_id": node_id,
-                    "public_ip": public_ip,
-                    "error": "Geolocation service error",
-                    "geo": None
-                }
-
-            geo_data = response.json()
-
-            if geo_data.get("status") == "fail":
-                return {
-                    "node_id": node_id,
-                    "public_ip": public_ip,
-                    "error": geo_data.get("message", "Unknown error"),
-                    "geo": None
-                }
-
-            # Cache the result
-            _geo_cache[cache_key] = (geo_data, now)
-
-            logger.info(f"📍 Geolocation fetched for {public_ip}: {geo_data.get('city')}, {geo_data.get('country')}")
-
-            return {
-                "node_id": node_id,
-                "public_ip": public_ip,
-                "geo": geo_data,
-                "cached": False
-            }
-
-    except httpx.RequestError as e:
-        logger.error(f"❌ Geolocation request error: {e}")
+    if geo_data.get("status") == "fail":
         return {
             "node_id": node_id,
             "public_ip": public_ip,
-            "error": f"Request failed: {str(e)}",
+            "error": geo_data.get("message", "Unknown error"),
             "geo": None
         }
+
+    # Cache the result
+    _geo_cache[cache_key] = (geo_data, now)
+
+    logger.info(f"📍 Geolocation for {public_ip}: {geo_data.get('city')}, {geo_data.get('country')} [source: {geo_data.get('source', 'unknown')}]")
+
+    return {
+        "node_id": node_id,
+        "public_ip": public_ip,
+        "geo": geo_data,
+        "cached": False
+    }
 
 
 @router.get("/geolocation/all")
@@ -1307,9 +1325,10 @@ async def get_all_nodes_geolocation(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Get geolocation data for all accessible nodes.
+    Get geolocation data for all accessible nodes and hubs.
 
-    Returns array of nodes with their geolocation data.
+    Uses local GeoLite2 database for fast lookups without rate limits.
+    Returns array of nodes and hubs with their geolocation data.
     Useful for populating the interactive map on dashboard.
     """
     # Get accessible nodes based on user role
@@ -1319,7 +1338,7 @@ async def get_all_nodes_geolocation(
     else:
         accessible_node_ids = await GroupService.get_accessible_nodes_for_user(db, current_user)
         if not accessible_node_ids:
-            return {"nodes": []}
+            return {"nodes": [], "hubs": []}
         result = await db.execute(select(Node).where(Node.id.in_(accessible_node_ids)))
         nodes = result.scalars().all()
 
@@ -1341,6 +1360,7 @@ async def get_all_nodes_geolocation(
             "geo": None,
             "latitude": None,
             "longitude": None,
+            "is_hub": False,
         }
 
         # Get geolocation if public IP available
@@ -1354,25 +1374,59 @@ async def get_all_nodes_geolocation(
                     node_data["latitude"] = cached_data.get("lat")
                     node_data["longitude"] = cached_data.get("lon")
             else:
-                # Fetch from API (with rate limiting consideration)
-                try:
-                    async with httpx.AsyncClient() as client:
-                        response = await client.get(
-                            f"http://ip-api.com/json/{node.public_ip}?fields=66846719",
-                            timeout=5.0
-                        )
+                # Use local GeoLite2 database (no rate limits!)
+                geo_data = _get_geolocation(node.public_ip)
 
-                        if response.status_code == 200:
-                            geo_data = response.json()
-                            if geo_data.get("status") != "fail":
-                                _geo_cache[cache_key] = (geo_data, now)
-                                node_data["geo"] = geo_data
-                                node_data["latitude"] = geo_data.get("lat")
-                                node_data["longitude"] = geo_data.get("lon")
-
-                except Exception as e:
-                    logger.warning(f"Failed to get geolocation for {node.public_ip}: {e}")
+                if geo_data.get("status") != "fail":
+                    _geo_cache[cache_key] = (geo_data, now)
+                    node_data["geo"] = geo_data
+                    node_data["latitude"] = geo_data.get("lat")
+                    node_data["longitude"] = geo_data.get("lon")
 
         nodes_with_geo.append(node_data)
 
-    return {"nodes": nodes_with_geo}
+    # Add Hub servers to the response
+    hubs_config = [
+        {"id": "hub-1", "name": "Hub 1 - Amsterdam", "public_ip": "139.59.149.48", "private_ip": "10.0.0.1"},
+        {"id": "hub-2", "name": "Hub 2 - Frankfurt", "public_ip": "68.183.219.222", "private_ip": "10.0.0.2"},
+    ]
+
+    hubs_with_geo = []
+    for hub in hubs_config:
+        hub_data = {
+            "id": hub["id"],
+            "name": hub["name"],
+            "status": "online",
+            "public_ip": hub["public_ip"],
+            "private_ip": hub["private_ip"],
+            "node_type": "hub",
+            "cpu_usage": None,
+            "memory_usage": None,
+            "disk_usage": None,
+            "exposed_applications": ["HUB", "API", "SSH_TUNNEL"],
+            "geo": None,
+            "latitude": None,
+            "longitude": None,
+            "is_hub": True,
+        }
+
+        # Get geolocation for hub
+        cache_key = f"geo:{hub['public_ip']}"
+        if cache_key in _geo_cache:
+            cached_data, cached_time = _geo_cache[cache_key]
+            if now - cached_time < GEO_CACHE_TTL:
+                hub_data["geo"] = cached_data
+                hub_data["latitude"] = cached_data.get("lat")
+                hub_data["longitude"] = cached_data.get("lon")
+        else:
+            geo_data = _get_geolocation(hub["public_ip"])
+            if geo_data.get("status") != "fail":
+                _geo_cache[cache_key] = (geo_data, now)
+                hub_data["geo"] = geo_data
+                hub_data["latitude"] = geo_data.get("lat")
+                hub_data["longitude"] = geo_data.get("lon")
+
+        hubs_with_geo.append(hub_data)
+
+    # Return nodes and hubs combined (hubs at the beginning for visibility)
+    return {"nodes": hubs_with_geo + nodes_with_geo, "hubs": hubs_with_geo}

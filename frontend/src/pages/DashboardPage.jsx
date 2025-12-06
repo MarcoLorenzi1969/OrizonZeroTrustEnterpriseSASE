@@ -1,3 +1,4 @@
+// Build: 2024-12-06T01:00 - Force cache refresh
 import { useEffect, useState, memo } from 'react'
 import { Server, Users, Activity, TrendingUp, Box, Play, Square, Shield, Link, Terminal, Lock, Globe, Cpu, HardDrive, MemoryStick, MapPin } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts'
@@ -47,6 +48,7 @@ function DashboardPage() {
   const [recentActivity, setRecentActivity] = useState([])
   const [nodesWithGeo, setNodesWithGeo] = useState([])
   const [loading, setLoading] = useState(true)
+  const [highlightedNodeId, setHighlightedNodeId] = useState(null)
 
   useEffect(() => {
     loadDashboardData()
@@ -357,50 +359,104 @@ function DashboardPage() {
       </div>
 
       {/* Interactive World Map with Geolocation */}
-      <InteractiveNodeMap nodes={nodesWithGeo} />
+      <InteractiveNodeMap
+        nodes={nodesWithGeo}
+        highlightedNodeId={highlightedNodeId}
+        onNodeSelect={(node) => setHighlightedNodeId(node?.id || null)}
+      />
 
-      {/* Active Nodes Grid */}
+      {/* Active Nodes Grid - Using nodesWithGeo for geo data */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
         <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <Server className="w-5 h-5 text-green-400" />
           Active Nodes
-          <span className="text-sm font-normal text-slate-400 ml-2">({nodes.length} total)</span>
+          <span className="text-sm font-normal text-slate-400 ml-2">({nodesWithGeo.length} total)</span>
+          <span className="text-xs text-cyan-400 ml-2">({nodesWithGeo.filter(n => n.is_hub).length} Hubs)</span>
+          <span className="text-xs text-green-400">({nodesWithGeo.filter(n => !n.is_hub).length} Edges)</span>
         </h2>
-        {nodes.length > 0 ? (
+        {nodesWithGeo.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {nodes.map((node) => (
-              <div
-                key={node.id}
-                className="bg-slate-700/50 border border-slate-600 rounded-lg p-4"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${node.status === 'online' ? 'bg-green-500' : 'bg-slate-500'}`}></span>
-                    <span className="text-white font-medium">{node.name}</span>
+            {nodesWithGeo.map((node) => {
+              const isHub = node.is_hub || node.node_type === 'hub'
+              return (
+                <div
+                  key={node.id}
+                  onClick={() => {
+                    setHighlightedNodeId(node.id)
+                    // Scroll to map
+                    document.querySelector('.leaflet-container')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                  }}
+                  className={`border rounded-lg p-4 cursor-pointer transition-all hover:bg-slate-700 ${
+                    isHub
+                      ? 'bg-cyan-900/20 hover:border-cyan-500'
+                      : 'bg-slate-700/50 hover:border-green-500'
+                  } ${
+                    highlightedNodeId === node.id
+                      ? (isHub ? 'border-cyan-500 ring-2 ring-cyan-500/50' : 'border-green-500 ring-2 ring-green-500/50')
+                      : 'border-slate-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      {isHub ? (
+                        <span className="w-5 h-5 rounded bg-cyan-500 flex items-center justify-center text-[10px] font-bold text-white">H</span>
+                      ) : (
+                        <span className={`w-2 h-2 rounded-full ${node.status === 'online' ? 'bg-green-500' : 'bg-slate-500'}`}></span>
+                      )}
+                      <span className="text-white font-medium">{node.name}</span>
+                    </div>
+                    <span className={`px-2 py-0.5 text-xs rounded ${
+                      isHub
+                        ? 'bg-cyan-500/20 text-cyan-400'
+                        : (node.status === 'online' ? 'bg-green-500/20 text-green-400' : 'bg-slate-600 text-slate-400')
+                    }`}>
+                      {isHub ? 'HUB' : node.status}
+                    </span>
                   </div>
-                  <span className={`px-2 py-0.5 text-xs rounded ${
-                    node.status === 'online' ? 'bg-green-500/20 text-green-400' : 'bg-slate-600 text-slate-400'
-                  }`}>
-                    {node.status}
-                  </span>
-                </div>
-                <div className="space-y-1 text-sm">
-                  <p className="text-slate-400">IP: <span className="text-slate-300 font-mono">{node.private_ip || node.public_ip || 'N/A'}</span></p>
-                  <p className="text-slate-400">Type: <span className="text-slate-300">{node.node_type}</span></p>
-                  <div className="flex gap-1 mt-2">
-                    {node.exposed_applications?.map((app) => (
-                      <span key={app} className={`px-1.5 py-0.5 text-xs rounded ${
-                        app === 'TERMINAL' ? 'bg-green-500/20 text-green-400' :
-                        app === 'HTTPS' ? 'bg-cyan-500/20 text-cyan-400' :
-                        'bg-purple-500/20 text-purple-400'
-                      }`}>
-                        {app}
-                      </span>
-                    ))}
+                  <div className="space-y-1 text-sm">
+                    <p className="text-slate-400">IP: <span className={`font-mono ${isHub ? 'text-cyan-300' : 'text-slate-300'}`}>{node.public_ip || node.private_ip || 'N/A'}</span></p>
+                    <p className="text-slate-400">Type: <span className="text-slate-300">{node.node_type}</span></p>
+
+                    {/* Geolocation Data */}
+                    {node.geo && (
+                      <div className="mt-2 pt-2 border-t border-slate-600/50">
+                        <div className="flex items-center gap-1 text-xs text-slate-400 mb-1">
+                          <MapPin className="w-3 h-3" />
+                          <span>Location</span>
+                        </div>
+                        <p className="text-slate-400 text-xs">
+                          City: <span className="text-cyan-400">{node.geo.city || 'N/A'}</span>
+                        </p>
+                        <p className="text-slate-400 text-xs">
+                          Country: <span className="text-cyan-400">{node.geo.country || 'N/A'}</span>
+                        </p>
+                        <p className="text-slate-400 text-xs">
+                          ISP: <span className="text-purple-400">{node.geo.isp || 'N/A'}</span>
+                        </p>
+                        <p className="text-slate-400 text-xs">
+                          Coords: <span className="text-slate-500 font-mono">{node.latitude?.toFixed(2)}, {node.longitude?.toFixed(2)}</span>
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {node.exposed_applications?.map((app) => (
+                        <span key={app} className={`px-1.5 py-0.5 text-xs rounded ${
+                          app === 'TERMINAL' ? 'bg-green-500/20 text-green-400' :
+                          app === 'HTTPS' ? 'bg-cyan-500/20 text-cyan-400' :
+                          app === 'HUB' ? 'bg-blue-500/20 text-blue-400' :
+                          app === 'API' ? 'bg-purple-500/20 text-purple-400' :
+                          app === 'SSH_TUNNEL' ? 'bg-orange-500/20 text-orange-400' :
+                          'bg-purple-500/20 text-purple-400'
+                        }`}>
+                          {app}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         ) : (
           <div className="text-center py-8 text-slate-500">

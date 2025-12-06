@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSelector } from 'react-redux'
-import { Users as UsersIcon, UserPlus, Edit2, Trash2, Key, Search } from 'lucide-react'
+import { Users as UsersIcon, UserPlus, Edit2, Trash2, Key, Search, CheckSquare, Square } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../services/api'
 
@@ -13,6 +13,16 @@ function UsersPage() {
   const [showEditModal, setShowEditModal] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [selectedUser, setSelectedUser] = useState(null)
+  const [selectedUsers, setSelectedUsers] = useState(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+
+  // Ref to always have the latest selectedUsers value
+  const selectedUsersRef = useRef(new Set())
+
+  // Update ref whenever selectedUsers changes
+  useEffect(() => {
+    selectedUsersRef.current = selectedUsers
+  }, [selectedUsers])
 
   useEffect(() => {
     loadUsers()
@@ -97,10 +107,72 @@ function UsersPage() {
     }
   }
 
+  // Filter users first (needed by selection handlers below)
   const filteredUsers = users.filter(user =>
     user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.full_name.toLowerCase().includes(searchTerm.toLowerCase())
+    (user.full_name && user.full_name.toLowerCase().includes(searchTerm.toLowerCase()))
   )
+
+  // Bulk selection handlers
+  const toggleUserSelection = (userId) => {
+    setSelectedUsers(prevSelected => {
+      const newSelection = new Set(prevSelected)
+      if (newSelection.has(userId)) {
+        newSelection.delete(userId)
+      } else {
+        newSelection.add(userId)
+      }
+      return newSelection
+    })
+  }
+
+  const toggleSelectAll = () => {
+    const deletableUsers = filteredUsers.filter(u => u.id !== currentUser?.id)
+    setSelectedUsers(prevSelected => {
+      if (prevSelected.size === deletableUsers.length && deletableUsers.length > 0) {
+        return new Set()
+      } else {
+        return new Set(deletableUsers.map(u => u.id))
+      }
+    })
+  }
+
+  const handleBulkDelete = async () => {
+    // Use ref to get the latest value (avoids stale closure issues)
+    const currentSelection = selectedUsersRef.current
+
+    if (currentSelection.size === 0) {
+      toast.error('No users selected')
+      return
+    }
+
+    const userIds = Array.from(currentSelection)
+    const confirmMessage = `Are you sure you want to delete ${userIds.length} user(s)? This action cannot be undone.`
+    if (!window.confirm(confirmMessage)) return
+
+    try {
+      setBulkDeleting(true)
+      const response = await api.post('/users/bulk-delete', { user_ids: userIds })
+      const { deleted_count, errors } = response.data
+
+      if (deleted_count > 0) {
+        toast.success(`Successfully deleted ${deleted_count} user(s)`)
+      }
+
+      if (errors && errors.length > 0) {
+        errors.forEach(err => {
+          toast.error(`Failed to delete user: ${err.error}`)
+        })
+      }
+
+      setSelectedUsers(new Set())
+      loadUsers()
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete users')
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
 
   const getRoleBadgeColor = (role) => {
     switch (role) {
@@ -129,13 +201,25 @@ function UsersPage() {
           </h1>
           <p className="text-gray-400 mt-1">Manage system users and permissions</p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-        >
-          <UserPlus className="w-5 h-5" />
-          Create User
-        </button>
+        <div className="flex items-center gap-3">
+          {selectedUsers.size > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              disabled={bulkDeleting}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="w-5 h-5" />
+              {bulkDeleting ? 'Deleting...' : `Delete Selected (${selectedUsers.size})`}
+            </button>
+          )}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+          >
+            <UserPlus className="w-5 h-5" />
+            Create User
+          </button>
+        </div>
       </div>
 
       {/* Search Bar */}
@@ -156,6 +240,19 @@ function UsersPage() {
           <table className="w-full">
             <thead className="bg-slate-900 border-b border-slate-700">
               <tr>
+                <th className="px-4 py-4 text-left">
+                  <button
+                    onClick={toggleSelectAll}
+                    className="text-gray-400 hover:text-white transition-colors"
+                    title={selectedUsers.size === filteredUsers.filter(u => u.id !== currentUser?.id).length ? "Deselect All" : "Select All"}
+                  >
+                    {selectedUsers.size > 0 && selectedUsers.size === filteredUsers.filter(u => u.id !== currentUser?.id).length ? (
+                      <CheckSquare className="w-5 h-5 text-blue-500" />
+                    ) : (
+                      <Square className="w-5 h-5" />
+                    )}
+                  </button>
+                </th>
                 <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                   User
                 </th>
@@ -175,10 +272,29 @@ function UsersPage() {
             </thead>
             <tbody className="divide-y divide-slate-700">
               {filteredUsers.map((user) => (
-                <tr key={user.id} className="hover:bg-slate-700/50 transition-colors">
+                <tr
+                  key={user.id}
+                  className={`hover:bg-slate-700/50 transition-colors ${selectedUsers.has(user.id) ? 'bg-blue-500/10' : ''}`}
+                >
+                  <td className="px-4 py-4">
+                    {user.id !== currentUser?.id ? (
+                      <button
+                        onClick={() => toggleUserSelection(user.id)}
+                        className="text-gray-400 hover:text-white transition-colors"
+                      >
+                        {selectedUsers.has(user.id) ? (
+                          <CheckSquare className="w-5 h-5 text-blue-500" />
+                        ) : (
+                          <Square className="w-5 h-5" />
+                        )}
+                      </button>
+                    ) : (
+                      <span className="w-5 h-5 block" title="Cannot select yourself"></span>
+                    )}
+                  </td>
                   <td className="px-6 py-4">
                     <div>
-                      <div className="text-white font-medium">{user.full_name}</div>
+                      <div className="text-white font-medium">{user.full_name || 'N/A'}</div>
                       <div className="text-gray-400 text-sm">{user.email}</div>
                     </div>
                   </td>

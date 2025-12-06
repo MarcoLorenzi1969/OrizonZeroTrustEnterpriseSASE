@@ -9,10 +9,13 @@ import uuid
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
 
+from sqlalchemy import update, delete
+
 from app.core.database import get_db
 from app.auth.dependencies import get_current_user, require_role
 from app.models.user import User, UserRole
 from app.models.user_permissions import PermissionLevel, ServiceType
+from app.models.group import Group, UserGroup
 from app.services.permission_service import PermissionService
 from app.services.user_service import UserService
 from app.services.hierarchy_service import HierarchyService
@@ -276,6 +279,71 @@ async def update_user(
     )
 
 
+class BulkDeleteRequest(BaseModel):
+    user_ids: List[str]
+
+
+@router.post("/users/bulk-delete", dependencies=[Depends(require_role([UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN]))])
+async def bulk_delete_users(
+    request: BulkDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Elimina più utenti in blocco (solo se nella propria gerarchia).
+    Restituisce il numero di utenti eliminati e eventuali errori.
+    Trasferisce la proprietà dei gruppi all'utente corrente prima di eliminare.
+    """
+    deleted_count = 0
+    errors = []
+
+    for user_id in request.user_ids:
+        # Non permettere di eliminare se stessi
+        if user_id == current_user.id:
+            errors.append({"user_id": user_id, "error": "Cannot delete yourself"})
+            continue
+
+        user = await db.get(User, user_id)
+        if not user:
+            errors.append({"user_id": user_id, "error": "User not found"})
+            continue
+
+        # Verifica gerarchia
+        can_access = await HierarchyService.can_access_user(db, current_user, user_id)
+        if not can_access:
+            errors.append({"user_id": user_id, "error": "Not authorized to delete this user"})
+            continue
+
+        # Verifica ruolo
+        if not HierarchyService.can_manage_role(current_user.role, user.role):
+            errors.append({"user_id": user_id, "error": f"Cannot delete user with role {user.role.value}"})
+            continue
+
+        # Trasferisci la proprietà dei gruppi all'utente corrente prima di eliminare
+        await db.execute(
+            update(Group)
+            .where(Group.created_by == user_id)
+            .values(created_by=current_user.id)
+        )
+
+        # Elimina le membership dell'utente nei gruppi
+        await db.execute(
+            delete(UserGroup)
+            .where(UserGroup.user_id == user_id)
+        )
+
+        await db.delete(user)
+        deleted_count += 1
+
+    await db.commit()
+
+    return {
+        "message": f"Deleted {deleted_count} user(s)",
+        "deleted_count": deleted_count,
+        "errors": errors
+    }
+
+
 @router.delete("/users/{user_id}", dependencies=[Depends(require_role([UserRole.SUPERUSER, UserRole.SUPER_ADMIN, UserRole.ADMIN]))])
 async def delete_user(
     user_id: str,
@@ -305,6 +373,19 @@ async def delete_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Cannot delete user with role {user.role.value}. Your role can only delete lower-level users."
         )
+
+    # Trasferisci la proprietà dei gruppi all'utente corrente prima di eliminare
+    await db.execute(
+        update(Group)
+        .where(Group.created_by == user_id)
+        .values(created_by=current_user.id)
+    )
+
+    # Elimina le membership dell'utente nei gruppi
+    await db.execute(
+        delete(UserGroup)
+        .where(UserGroup.user_id == user_id)
+    )
 
     await db.delete(user)
     await db.commit()

@@ -70,6 +70,8 @@ class NodeUpdate(BaseModel):
     location: Optional[str] = None
     tags: Optional[List[str]] = None
     metadata: Optional[Dict[str, Any]] = None
+    public_ip: Optional[str] = None
+    private_ip: Optional[str] = None
 
 
 class NodeMetrics(BaseModel):
@@ -182,6 +184,7 @@ class NodeMetricsUpdate(BaseModel):
     active_processes: Optional[int] = None
     top_processes: Optional[List[Dict[str, Any]]] = None  # Top 5 processes by CPU
     timestamp: Optional[datetime] = None
+    public_ip: Optional[str] = None  # Edge node's public IP for geolocation
 
 
 class NodeMetricsResponse(BaseModel):

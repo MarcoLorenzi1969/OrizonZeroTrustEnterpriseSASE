@@ -200,3 +200,92 @@ class ServiceTunnelConfig(BaseModel):
     service_port: int  # Remote port on hub for this node's service tunnel
     heartbeat_interval: int = 30
     metrics_interval: int = 60
+
+
+# === Hardening Information Schemas ===
+
+class FirewallStatus(BaseModel):
+    """Firewall status information"""
+    enabled: bool = False
+    profiles: Optional[Dict[str, bool]] = None  # Windows: {Domain, Private, Public}
+    active_rules: Optional[int] = None
+    default_policy: Optional[str] = None  # Linux: INPUT/OUTPUT default policy
+
+
+class AntivirusStatus(BaseModel):
+    """Antivirus/Defender status"""
+    enabled: bool = False
+    real_time_protection: bool = False
+    last_scan: Optional[datetime] = None
+    definitions_updated: Optional[datetime] = None
+    product_name: Optional[str] = None  # e.g., "Windows Defender", "ClamAV"
+
+
+class OpenPort(BaseModel):
+    """Open port information"""
+    port: int
+    protocol: str = "tcp"
+    process: Optional[str] = None
+    pid: Optional[int] = None
+    state: str = "LISTENING"
+
+
+class SecurityModule(BaseModel):
+    """Security module status (SELinux/AppArmor/etc)"""
+    name: str  # e.g., "SELinux", "AppArmor", "Windows Defender Firewall"
+    status: str  # "enabled", "disabled", "enforcing", "permissive"
+    mode: Optional[str] = None
+
+
+class SSHConfig(BaseModel):
+    """SSH configuration (Linux/macOS)"""
+    password_auth: Optional[bool] = None
+    root_login: Optional[str] = None  # "yes", "no", "prohibit-password"
+    port: int = 22
+    protocol_version: Optional[str] = None
+
+
+class SSLInfo(BaseModel):
+    """SSL/TLS configuration"""
+    openssl_version: Optional[str] = None
+    tls_versions: Optional[List[str]] = None  # ["TLSv1.2", "TLSv1.3"]
+
+
+class AuditStatus(BaseModel):
+    """Audit logging status"""
+    enabled: bool = False
+    service_name: Optional[str] = None  # "auditd", "Windows Event Log"
+    log_path: Optional[str] = None
+
+
+class NodeHardeningInfo(BaseModel):
+    """Complete hardening information for a node"""
+    node_id: str
+    node_name: str
+    node_type: str  # linux, windows, macos
+
+    firewall: Optional[FirewallStatus] = None
+    antivirus: Optional[AntivirusStatus] = None
+    open_ports: Optional[List[OpenPort]] = None
+    security_modules: Optional[List[SecurityModule]] = None
+    ssh_config: Optional[SSHConfig] = None
+    ssl_info: Optional[SSLInfo] = None
+    audit: Optional[AuditStatus] = None
+
+    last_scan: Optional[datetime] = None
+    scan_status: str = "never"  # "never", "scanning", "completed", "error"
+
+    class Config:
+        from_attributes = True
+
+
+class NodeHardeningUpdate(BaseModel):
+    """Schema for updating hardening info from agent"""
+    agent_token: str
+    firewall: Optional[Dict[str, Any]] = None
+    antivirus: Optional[Dict[str, Any]] = None
+    open_ports: Optional[List[Dict[str, Any]]] = None
+    security_modules: Optional[List[Dict[str, Any]]] = None
+    ssh_config: Optional[Dict[str, Any]] = None
+    ssl_info: Optional[Dict[str, Any]] = None
+    audit: Optional[Dict[str, Any]] = None

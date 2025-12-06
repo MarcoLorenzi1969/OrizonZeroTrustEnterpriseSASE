@@ -35,6 +35,8 @@ from app.schemas.node import (
     NodeMetricsUpdate,
     NodeMetricsResponse,
     ServiceTunnelConfig,
+    NodeHardeningInfo,
+    NodeHardeningUpdate,
 )
 from app.services.node_provision_service import NodeProvisioningService
 from app.services.group_service import GroupService
@@ -506,15 +508,29 @@ async def get_install_script(
 
             logger.info(f"📜 Script generated for node {node.name} ({os_type})")
 
-            # Set appropriate filename
+            # Set appropriate filename - sanitize for safe download
+            import re
+            from urllib.parse import quote
             extension = '.ps1' if os_type == 'windows' else '.sh'
-            filename = f"orizon-install-{node.name}{extension}"
+            # Replace spaces with underscores and remove special chars
+            safe_name = re.sub(r'[^\w\-]', '_', node.name)
+            filename = f"orizon-install-{safe_name}{extension}"
+            # URL encode for Content-Disposition header
+            encoded_filename = quote(filename)
+
+            # For Windows PowerShell: convert to CRLF line endings
+            if os_type == 'windows':
+                # Normalize line endings to LF first, then convert to CRLF
+                script_content = script_content.replace('\r\n', '\n').replace('\r', '\n')
+                script_content = script_content.replace('\n', '\r\n')
+
+            media_type = "text/plain; charset=utf-8"
 
             return PlainTextResponse(
                 content=script_content,
-                media_type="text/plain",
+                media_type=media_type,
                 headers={
-                    "Content-Disposition": f'attachment; filename="{filename}"'
+                    "Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{encoded_filename}"
                 }
             )
 
@@ -1430,3 +1446,117 @@ async def get_all_nodes_geolocation(
 
     # Return nodes and hubs combined (hubs at the beginning for visibility)
     return {"nodes": hubs_with_geo + nodes_with_geo, "hubs": hubs_with_geo}
+
+
+# === Hardening Information Endpoints ===
+
+@router.get("/{node_id}/hardening", response_model=NodeHardeningInfo)
+async def get_node_hardening(
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get hardening information for a node.
+
+    Returns security hardening status including:
+    - Firewall status and configuration
+    - Antivirus/Defender status
+    - Open/listening ports
+    - Security modules (SELinux, AppArmor, etc.)
+    - SSH configuration (Linux/macOS)
+    - SSL/TLS configuration
+    - Audit logging status
+    """
+    # Get node
+    result = await db.execute(select(Node).where(Node.id == node_id))
+    node = result.scalar_one_or_none()
+
+    if not node:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Node not found"
+        )
+
+    # Check permissions
+    if current_user.role != UserRole.SUPERUSER:
+        accessible_node_ids = await GroupService.get_accessible_nodes_for_user(db, current_user)
+        if node_id not in accessible_node_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this node"
+            )
+
+    # Build hardening response
+    scan_status = "never"
+    if node.hardening_last_scan:
+        # Check if scan is recent (less than 24 hours)
+        age = datetime.utcnow() - node.hardening_last_scan
+        if age.total_seconds() < 86400:  # 24 hours
+            scan_status = "completed"
+        else:
+            scan_status = "stale"
+
+    return NodeHardeningInfo(
+        node_id=node.id,
+        node_name=node.name,
+        node_type=node.node_type.value if hasattr(node.node_type, 'value') else node.node_type,
+        firewall=node.hardening_firewall,
+        antivirus=node.hardening_antivirus,
+        open_ports=node.hardening_open_ports,
+        security_modules=node.hardening_security_modules,
+        ssh_config=node.hardening_ssh_config,
+        ssl_info=node.hardening_ssl_info,
+        audit=node.hardening_audit,
+        last_scan=node.hardening_last_scan,
+        scan_status=scan_status
+    )
+
+
+@router.post("/hardening", status_code=status.HTTP_200_OK)
+async def update_node_hardening(
+    hardening: NodeHardeningUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Update hardening information from node agent.
+
+    This endpoint is called by the agent to report security hardening status.
+    No user authentication required - uses agent_token for auth.
+    """
+    # Find node by agent token
+    result = await db.execute(
+        select(Node).where(Node.agent_token == hardening.agent_token)
+    )
+    node = result.scalar_one_or_none()
+
+    if not node:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid agent token"
+        )
+
+    # Update hardening fields
+    if hardening.firewall is not None:
+        node.hardening_firewall = hardening.firewall
+    if hardening.antivirus is not None:
+        node.hardening_antivirus = hardening.antivirus
+    if hardening.open_ports is not None:
+        node.hardening_open_ports = hardening.open_ports
+    if hardening.security_modules is not None:
+        node.hardening_security_modules = hardening.security_modules
+    if hardening.ssh_config is not None:
+        node.hardening_ssh_config = hardening.ssh_config
+    if hardening.ssl_info is not None:
+        node.hardening_ssl_info = hardening.ssl_info
+    if hardening.audit is not None:
+        node.hardening_audit = hardening.audit
+
+    # Update last scan timestamp
+    node.hardening_last_scan = datetime.utcnow()
+
+    await db.commit()
+
+    logger.info(f"🔒 Hardening info updated for node {node.name} (ID: {node.id})")
+
+    return {"status": "ok", "node_id": node.id, "updated_at": node.hardening_last_scan}

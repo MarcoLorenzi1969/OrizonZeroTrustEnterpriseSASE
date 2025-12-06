@@ -19,7 +19,17 @@ import {
   Monitor,
   Copy,
   Check,
-  FileCode
+  FileCode,
+  ChevronDown,
+  ChevronUp,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldX,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  FileJson
 } from 'lucide-react'
 import api from '../services/api'
 import toast from 'react-hot-toast'
@@ -379,8 +389,124 @@ function NodesPage() {
     setScriptsData(null)
   }
 
-  // Safely calculate stats - ensure nodes is always an array
+  // Safely ensure nodes is always an array
   const safeNodes = Array.isArray(nodes) ? nodes : []
+
+  // Export complete configuration
+  const [exporting, setExporting] = useState(false)
+
+  const exportConfiguration = async () => {
+    if (safeNodes.length === 0) {
+      toast.error('No nodes to export')
+      return
+    }
+
+    setExporting(true)
+    const toastId = toast.loading('Exporting configuration...')
+
+    try {
+      // Fetch hardening data for all nodes
+      const nodesWithHardening = await Promise.all(
+        safeNodes.map(async (node) => {
+          let hardeningData = null
+          try {
+            const response = await api.get(`/nodes/${node.id}/hardening`)
+            hardeningData = response.data
+          } catch (err) {
+            console.warn(`Could not fetch hardening for node ${node.id}:`, err)
+          }
+
+          return {
+            // Basic Info
+            id: node.id,
+            name: node.name,
+            hostname: node.hostname,
+            status: node.status,
+            created_at: node.created_at,
+            updated_at: node.updated_at,
+
+            // OS Info
+            os: {
+              type: node.node_type,
+              reverse_tunnel_type: node.reverse_tunnel_type,
+              agent_token: node.agent_token ? '***REDACTED***' : null,
+            },
+
+            // Network & Geolocation
+            network: {
+              public_ip: node.public_ip,
+              private_ip: node.private_ip,
+              location: node.location,
+            },
+            geolocation: {
+              city: node.city,
+              region: node.region,
+              country: node.country,
+              country_code: node.country_code,
+              latitude: node.latitude,
+              longitude: node.longitude,
+              isp: node.isp,
+              org: node.org,
+            },
+
+            // Services Configuration
+            services: {
+              exposed_applications: node.exposed_applications,
+              application_ports: node.application_ports,
+            },
+
+            // Hardening & Security
+            hardening: hardeningData ? {
+              last_scan: hardeningData.last_scan,
+              scan_status: hardeningData.scan_status,
+              firewall: hardeningData.firewall,
+              antivirus: hardeningData.antivirus,
+              ssh_config: hardeningData.ssh_config,
+              ssl_info: hardeningData.ssl_info,
+              audit: hardeningData.audit,
+              security_modules: hardeningData.security_modules,
+              open_ports: hardeningData.open_ports,
+            } : null,
+          }
+        })
+      )
+
+      // Build export object
+      const exportData = {
+        export_info: {
+          exported_at: new Date().toISOString(),
+          export_version: '1.0',
+          total_nodes: nodesWithHardening.length,
+          online_nodes: nodesWithHardening.filter(n => n.status === 'online').length,
+          offline_nodes: nodesWithHardening.filter(n => n.status === 'offline').length,
+        },
+        nodes: nodesWithHardening,
+      }
+
+      // Download as JSON file
+      const jsonStr = JSON.stringify(exportData, null, 2)
+      const blob = new Blob([jsonStr], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `orizon-nodes-export-${new Date().toISOString().split('T')[0]}.json`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+
+      toast.dismiss(toastId)
+      toast.success(`Exported ${nodesWithHardening.length} nodes successfully!`)
+    } catch (error) {
+      console.error('Export error:', error)
+      toast.dismiss(toastId)
+      toast.error('Failed to export configuration')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  // Calculate stats
   const stats = {
     total: safeNodes.length,
     online: safeNodes.filter(n => n.status === 'online').length,
@@ -483,6 +609,19 @@ function NodesPage() {
           <p className="text-slate-400">Manage and connect devices to your zero trust network</p>
         </div>
         <div className="flex gap-3">
+          <button
+            onClick={exportConfiguration}
+            disabled={exporting || safeNodes.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+            title="Export all nodes configuration (OS, Network, Hardening)"
+          >
+            {exporting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <FileJson className="w-4 h-4" />
+            )}
+            Export
+          </button>
           <button
             onClick={loadNodes}
             className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
@@ -811,6 +950,10 @@ function StatCard({ title, value, color }) {
 
 function NodeCard({ node, onDelete, onEdit, onOpenTerminal, onViewScripts }) {
   const isOnline = node.status === 'online'
+  const [hardeningExpanded, setHardeningExpanded] = useState(false)
+  const [hardeningData, setHardeningData] = useState(null)
+  const [hardeningLoading, setHardeningLoading] = useState(false)
+  const [downloadingScript, setDownloadingScript] = useState(false)
 
   // Get exposed apps from both exposed_applications and application_ports
   const configuredApps = node.exposed_applications || []
@@ -823,6 +966,33 @@ function NodeCard({ node, onDelete, onEdit, onOpenTerminal, onViewScripts }) {
   const hasSSH = exposedApps.includes('TERMINAL')
   const hasRDP = exposedApps.includes('RDP')
   const hasVNC = exposedApps.includes('VNC')
+
+  // Fetch hardening data
+  const fetchHardeningData = async () => {
+    if (hardeningData) {
+      setHardeningExpanded(!hardeningExpanded)
+      return
+    }
+    setHardeningLoading(true)
+    try {
+      const response = await api.get(`/nodes/${node.id}/hardening`)
+      setHardeningData(response.data)
+      setHardeningExpanded(true)
+    } catch (error) {
+      toast.error('Failed to load hardening info')
+      console.error('Hardening fetch error:', error)
+    } finally {
+      setHardeningLoading(false)
+    }
+  }
+
+  const toggleHardening = () => {
+    if (hardeningData) {
+      setHardeningExpanded(!hardeningExpanded)
+    } else {
+      fetchHardeningData()
+    }
+  }
 
   // Enhanced debug logging
   debugReact.render('NodeCard', `Rendering: ${node.name}`, {
@@ -863,6 +1033,51 @@ function NodeCard({ node, onDelete, onEdit, onOpenTerminal, onViewScripts }) {
       toast(`${service} connection: Remote port ${portInfo.remote || 'N/A'}`)
     }
   }
+
+  // Download OS-specific installation script
+  const downloadNodeScript = async () => {
+    const osType = node.node_type || 'linux'
+    setDownloadingScript(true)
+
+    try {
+      const response = await api.get(`/nodes/${node.id}/install-script/${osType}`, {
+        responseType: 'text'
+      })
+      const script = response.data
+
+      const extension = osType === 'windows' ? '.ps1' : '.sh'
+      const mimeType = osType === 'windows' ? 'application/x-powershell' : 'application/x-sh'
+      // Sanitize filename - replace spaces and special chars with underscores
+      const safeName = node.name.replace(/[^\w\-]/g, '_')
+      const blob = new Blob([script], { type: mimeType })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `orizon-install-${safeName}${extension}`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+
+      toast.success(`${osType} installation script downloaded!`)
+    } catch (error) {
+      console.error('Error downloading script:', error)
+      toast.error('Failed to download installation script')
+    } finally {
+      setDownloadingScript(false)
+    }
+  }
+
+  // Get OS icon for node type
+  const getOsIcon = () => {
+    const osType = node.node_type || 'linux'
+    switch (osType) {
+      case 'windows': return Server
+      case 'macos': return Monitor
+      default: return Terminal
+    }
+  }
+  const OsIcon = getOsIcon()
 
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden hover:border-slate-600 transition-colors">
@@ -952,13 +1167,151 @@ function NodeCard({ node, onDelete, onEdit, onOpenTerminal, onViewScripts }) {
           )}
         </div>
 
+        {/* Security/Hardening Button */}
+        <button
+          onClick={toggleHardening}
+          className="w-full mt-3 flex items-center justify-between px-3 py-2 bg-slate-700/50 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            {hardeningLoading ? (
+              <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />
+            ) : hardeningData?.scan_status === 'completed' ? (
+              <ShieldCheck className="w-4 h-4 text-green-400" />
+            ) : hardeningData?.scan_status === 'stale' ? (
+              <ShieldAlert className="w-4 h-4 text-yellow-400" />
+            ) : (
+              <Shield className="w-4 h-4 text-slate-400" />
+            )}
+            <span className="text-sm text-slate-300">Security Info</span>
+          </div>
+          {hardeningExpanded ? (
+            <ChevronUp className="w-4 h-4 text-slate-400" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-slate-400" />
+          )}
+        </button>
+
+        {/* Hardening Dropdown Content */}
+        {hardeningExpanded && hardeningData && (
+          <div className="mt-2 p-3 bg-slate-900/50 border border-slate-700 rounded-lg space-y-3 text-sm">
+            {/* Scan Status */}
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-500">Last Scan:</span>
+              <span className={`${
+                hardeningData.scan_status === 'completed' ? 'text-green-400' :
+                hardeningData.scan_status === 'stale' ? 'text-yellow-400' : 'text-slate-500'
+              }`}>
+                {hardeningData.last_scan
+                  ? new Date(hardeningData.last_scan).toLocaleString()
+                  : 'Never scanned'}
+              </span>
+            </div>
+
+            {/* Firewall */}
+            <HardeningRow
+              label="Firewall"
+              status={hardeningData.firewall?.enabled}
+              detail={hardeningData.firewall?.default_policy || (hardeningData.firewall?.profiles ? 'Active profiles' : null)}
+            />
+
+            {/* Antivirus */}
+            <HardeningRow
+              label="Antivirus"
+              status={hardeningData.antivirus?.enabled}
+              detail={hardeningData.antivirus?.product_name || (hardeningData.antivirus?.real_time_protection ? 'Real-time ON' : null)}
+            />
+
+            {/* SSH Config (Linux only) */}
+            {hardeningData.ssh_config && (
+              <HardeningRow
+                label="SSH Hardening"
+                status={hardeningData.ssh_config?.root_login === 'no'}
+                detail={`Root: ${hardeningData.ssh_config?.root_login || 'N/A'}, Port: ${hardeningData.ssh_config?.port || 22}`}
+              />
+            )}
+
+            {/* Security Modules */}
+            {hardeningData.security_modules && hardeningData.security_modules.length > 0 && (
+              <div className="flex items-start justify-between">
+                <span className="text-slate-400">Security Modules:</span>
+                <div className="text-right">
+                  {hardeningData.security_modules.map((mod, i) => (
+                    <div key={i} className={`${mod.status === 'loaded' || mod.status === 'enabled' || mod.status === 'enforcing' ? 'text-green-400' : 'text-yellow-400'}`}>
+                      {mod.name} ({mod.status})
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Open Ports */}
+            {hardeningData.open_ports && hardeningData.open_ports.length > 0 && (
+              <div className="flex items-start justify-between">
+                <span className="text-slate-400">Open Ports:</span>
+                <div className="text-right text-slate-300">
+                  {hardeningData.open_ports.slice(0, 5).map((port, i) => (
+                    <span key={i} className="inline-block px-1.5 py-0.5 bg-slate-700 rounded text-xs mr-1 mb-1">
+                      {port.port}/{port.protocol}
+                    </span>
+                  ))}
+                  {hardeningData.open_ports.length > 5 && (
+                    <span className="text-slate-500 text-xs">+{hardeningData.open_ports.length - 5} more</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* SSL Info */}
+            {hardeningData.ssl_info?.openssl_version && (
+              <HardeningRow
+                label="OpenSSL"
+                status={true}
+                detail={hardeningData.ssl_info.openssl_version}
+              />
+            )}
+
+            {/* Audit */}
+            {hardeningData.audit && (
+              <HardeningRow
+                label="Audit Logging"
+                status={hardeningData.audit?.enabled}
+                detail={hardeningData.audit?.service_name}
+              />
+            )}
+
+            {/* No data message */}
+            {hardeningData.scan_status === 'never' && (
+              <div className="text-center py-2 text-slate-500 text-xs">
+                <AlertTriangle className="w-4 h-4 mx-auto mb-1 text-yellow-500" />
+                No hardening data collected yet.
+                <br />Agent needs to report security info.
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Bottom actions */}
         <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-700">
           <div className="flex gap-1">
             <button
+              onClick={downloadNodeScript}
+              disabled={downloadingScript}
+              className="p-2 hover:bg-green-700/30 rounded-lg transition-colors group relative"
+              title={`Download ${node.node_type || 'linux'} installation script`}
+            >
+              {downloadingScript ? (
+                <Loader2 className="w-4 h-4 text-green-400 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 text-green-400" />
+              )}
+              <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-700 text-white text-xs px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                {(node.node_type || 'linux').toUpperCase()} Script
+              </span>
+            </button>
+            <button
               onClick={() => onViewScripts && onViewScripts(node)}
               className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
-              title="View installation scripts"
+              title="View all installation scripts"
             >
               <FileCode className="w-4 h-4 text-slate-400" />
             </button>
@@ -978,6 +1331,25 @@ function NodeCard({ node, onDelete, onEdit, onOpenTerminal, onViewScripts }) {
             <Trash2 className="w-4 h-4 text-red-400" />
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Helper component for hardening rows
+function HardeningRow({ label, status, detail }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-slate-400">{label}:</span>
+      <div className="flex items-center gap-2">
+        {detail && <span className="text-slate-300 text-xs">{detail}</span>}
+        {status === true ? (
+          <CheckCircle className="w-4 h-4 text-green-400" />
+        ) : status === false ? (
+          <XCircle className="w-4 h-4 text-red-400" />
+        ) : (
+          <span className="text-slate-500 text-xs">N/A</span>
+        )}
       </div>
     </div>
   )

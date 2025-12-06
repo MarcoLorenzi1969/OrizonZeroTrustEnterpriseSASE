@@ -113,6 +113,17 @@ class Node(Base):
     memory_usage = Column(Float, default=0.0)
     disk_usage = Column(Float, default=0.0)
     last_heartbeat = Column(DateTime, nullable=True)
+
+    # Hardening information (JSON for flexibility across OS types)
+    hardening_firewall = Column(JSON, nullable=True)  # Firewall status and rules
+    hardening_antivirus = Column(JSON, nullable=True)  # AV/Defender status
+    hardening_open_ports = Column(JSON, nullable=True)  # List of listening ports
+    hardening_security_modules = Column(JSON, nullable=True)  # SELinux/AppArmor/etc
+    hardening_updates = Column(JSON, nullable=True)  # Security updates info
+    hardening_ssh_config = Column(JSON, nullable=True)  # SSH hardening (Linux)
+    hardening_ssl_info = Column(JSON, nullable=True)  # SSL/TLS configuration
+    hardening_audit = Column(JSON, nullable=True)  # Audit logging status
+    hardening_last_scan = Column(DateTime, nullable=True)  # Last hardening scan time
     
     # Ownership
     owner_id = Column(String(36), ForeignKey("users.id"), nullable=False)

@@ -1,155 +1,1672 @@
 #!/bin/bash
 #
 # Orizon Zero Trust Connect - Linux Agent Installation Script
+# Version: 3.0.0 - Enhanced Edition with Security Hardening
 # Generated: {{timestamp}}
 # Node: {{nodeName}}
+#
+# Supported Distributions: Debian, Ubuntu, RHEL, CentOS, Rocky, Alma, Fedora
 #
 
 set -e
 
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║   Orizon Zero Trust Connect - Agent Installation          ║"
-echo "║   Node: {{nodeName}}                                       ║"
-echo "╚════════════════════════════════════════════════════════════╝"
-echo ""
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    CONFIGURATION                              ║
+# ╚═══════════════════════════════════════════════════════════════╝
 
-# Configuration
 HUB_HOST="{{hubHost}}"
 HUB_SSH_PORT="{{hubSshPort}}"
 AGENT_TOKEN="{{agentToken}}"
 NODE_ID="{{nodeId}}"
 TUNNEL_TYPE="{{tunnelType}}"
 API_BASE_URL="{{apiBaseUrl}}"
+NODE_NAME="{{nodeName}}"
 
-# Applications and ports
-{{#each applicationPorts}}
-APP_{{@key}}_LOCAL="{{this.local}}"
-APP_{{@key}}_REMOTE="{{this.remote}}"
+# Tunnel ports
+TERMINAL_LOCAL_PORT={{localSshPort}}
+TERMINAL_REMOTE_PORT={{terminalTunnelPort}}
+HTTPS_LOCAL_PORT={{localHttpsPort}}
+HTTPS_REMOTE_PORT={{httpsTunnelPort}}
+
+# Multi-hub configuration
+{{#if hasMultipleHubs}}
+declare -a HUB_SERVERS=(
+{{#each hubServers}}
+    "{{this.name}}:{{this.host}}:{{this.sshPort}}"
 {{/each}}
+)
+{{/if}}
 
-echo "📦 1. Installing dependencies..."
-if command -v apt-get &> /dev/null; then
-    sudo apt-get update -qq
-    sudo apt-get install -y curl openssh-client jq
-elif command -v yum &> /dev/null; then
-    sudo yum install -y curl openssh-clients jq
-elif command -v dnf &> /dev/null; then
-    sudo dnf install -y curl openssh jq
-else
-    echo "❌ Unsupported package manager. Please install curl, openssh-client, and jq manually."
-    exit 1
-fi
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
+NC='\033[0m' # No Color
 
-echo ""
-echo "📥 2. Downloading Orizon agent..."
-AGENT_DIR="/opt/orizon-agent"
-sudo mkdir -p "$AGENT_DIR"
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    UTILITY FUNCTIONS                          ║
+# ╚═══════════════════════════════════════════════════════════════╝
 
-# Download agent binary
-curl -fsSL "${API_BASE_URL}/agent/download/linux" -o /tmp/orizon-agent
-sudo mv /tmp/orizon-agent "$AGENT_DIR/orizon-agent"
-sudo chmod +x "$AGENT_DIR/orizon-agent"
+print_banner() {
+    echo -e "${CYAN}"
+    echo "╔═══════════════════════════════════════════════════════════════╗"
+    echo "║       ORIZON ZERO TRUST CONNECT - AGENT INSTALLER            ║"
+    echo "║                    Version 3.0.0                             ║"
+    echo "╠═══════════════════════════════════════════════════════════════╣"
+    echo "║  Node: ${NODE_NAME}"
+    echo "║  Hub:  ${HUB_HOST}:${HUB_SSH_PORT}"
+    echo "╚═══════════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+}
 
-echo ""
-echo "🔧 3. Configuring agent..."
+print_section() {
+    echo ""
+    echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${WHITE}  $1${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
+}
 
-# Create configuration file
-sudo tee "$AGENT_DIR/config.json" > /dev/null <<EOF
+print_ok() {
+    echo -e "${GREEN}[✓]${NC} $1"
+}
+
+print_warn() {
+    echo -e "${YELLOW}[⚠]${NC} $1"
+}
+
+print_fail() {
+    echo -e "${RED}[✗]${NC} $1"
+}
+
+print_info() {
+    echo -e "${CYAN}[i]${NC} $1"
+}
+
+ask_yes_no() {
+    local prompt="$1"
+    local default="${2:-y}"
+    local answer
+
+    if [[ "$default" == "y" ]]; then
+        prompt="$prompt [Y/n]: "
+    else
+        prompt="$prompt [y/N]: "
+    fi
+
+    read -p "$prompt" answer
+    answer=${answer:-$default}
+
+    [[ "${answer,,}" == "y" || "${answer,,}" == "yes" ]]
+}
+
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    EXISTING INSTALLATION CHECK                ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+EXISTING_INSTALLATION="false"
+EXISTING_CONFIG=""
+
+check_existing_installation() {
+    AGENT_DIR="/opt/orizon-agent"
+    CONFIG_FILE="$AGENT_DIR/config.json"
+    EXISTING_INSTALLATION="false"
+
+    if [ -d "$AGENT_DIR" ] && [ -f "$CONFIG_FILE" ]; then
+        EXISTING_INSTALLATION="true"
+        EXISTING_CONFIG=$(cat "$CONFIG_FILE" 2>/dev/null || true)
+    fi
+
+    # Also check for running services (ignore errors)
+    if systemctl is-active --quiet orizon-tunnel-terminal.service 2>/dev/null; then
+        EXISTING_INSTALLATION="true"
+    fi
+    if systemctl is-active --quiet orizon-tunnel-https.service 2>/dev/null; then
+        EXISTING_INSTALLATION="true"
+    fi
+
+    # Always return 0 to avoid set -e exit
+    return 0
+}
+
+show_existing_status() {
+    echo ""
+    echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║           EXISTING INSTALLATION DETECTED                      ║${NC}"
+    echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    AGENT_DIR="/opt/orizon-agent"
+    CONFIG_FILE="$AGENT_DIR/config.json"
+
+    if [ -f "$CONFIG_FILE" ]; then
+        EXISTING_NODE_ID=$(cat "$CONFIG_FILE" | grep -oP '"nodeId":\s*"\K[^"]+' 2>/dev/null || echo "unknown")
+        EXISTING_NODE_NAME=$(cat "$CONFIG_FILE" | grep -oP '"nodeName":\s*"\K[^"]+' 2>/dev/null || echo "unknown")
+        EXISTING_HUB=$(cat "$CONFIG_FILE" | grep -oP '"hubHost":\s*"\K[^"]+' 2>/dev/null || echo "unknown")
+        INSTALLED_AT=$(cat "$CONFIG_FILE" | grep -oP '"installedAt":\s*"\K[^"]+' 2>/dev/null || echo "unknown")
+
+        echo -e "${WHITE}Current Configuration:${NC}"
+        echo "   Node ID:      $EXISTING_NODE_ID"
+        echo "   Node Name:    $EXISTING_NODE_NAME"
+        echo "   Hub:          $EXISTING_HUB"
+        echo "   Installed:    $INSTALLED_AT"
+        echo ""
+    fi
+
+    echo -e "${WHITE}Tunnel Services Status:${NC}"
+
+    if systemctl is-active --quiet orizon-tunnel-terminal.service 2>/dev/null; then
+        print_ok "Terminal tunnel: RUNNING"
+    elif systemctl is-enabled --quiet orizon-tunnel-terminal.service 2>/dev/null; then
+        print_warn "Terminal tunnel: STOPPED (enabled)"
+    else
+        print_fail "Terminal tunnel: NOT CONFIGURED"
+    fi
+
+    if systemctl is-active --quiet orizon-tunnel-https.service 2>/dev/null; then
+        print_ok "HTTPS tunnel: RUNNING"
+    elif systemctl is-enabled --quiet orizon-tunnel-https.service 2>/dev/null; then
+        print_warn "HTTPS tunnel: STOPPED (enabled)"
+    else
+        print_fail "HTTPS tunnel: NOT CONFIGURED"
+    fi
+
+    # Check SSH key
+    if [ -f "$AGENT_DIR/.ssh/id_ed25519.pub" ]; then
+        print_ok "SSH key: PRESENT"
+    else
+        print_fail "SSH key: MISSING"
+    fi
+
+    echo ""
+}
+
+prompt_existing_action() {
+    echo -e "${WHITE}What would you like to do?${NC}"
+    echo ""
+    echo -e "   [1] ${GREEN}Upgrade/Update${NC} - Update configuration and services"
+    echo -e "   [2] ${YELLOW}Modify${NC} - Change tunnel ports or hub connection"
+    echo -e "   [3] ${RED}Uninstall${NC} - Remove agent and tunnel services"
+    echo -e "   [4] ${CYAN}Status Only${NC} - Run security audit and show current status"
+    echo -e "   [5] Cancel - Exit without changes"
+    echo ""
+
+    read -p "Select option [1-5]: " EXISTING_ACTION
+
+    case "$EXISTING_ACTION" in
+        1)
+            ACTION="upgrade"
+            print_info "Selected: Upgrade/Update"
+            ;;
+        2)
+            ACTION="modify"
+            print_info "Selected: Modify configuration"
+            ;;
+        3)
+            ACTION="uninstall"
+            print_warn "Selected: Uninstall"
+            ;;
+        4)
+            ACTION="status"
+            print_info "Selected: Status only"
+            ;;
+        5|*)
+            ACTION="cancel"
+            print_info "Installation cancelled"
+            exit 0
+            ;;
+    esac
+}
+
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    UNINSTALL FUNCTION                         ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+uninstall_agent() {
+    print_section "UNINSTALLING ORIZON AGENT"
+    echo ""
+
+    echo -e "${RED}⚠ WARNING: This will remove all Orizon components:${NC}"
+    echo "   • Stop and remove tunnel services"
+    echo "   • Remove agent directory (/opt/orizon-agent)"
+    echo "   • Remove SSH keys"
+    echo ""
+
+    if [ -t 0 ]; then
+        if ! ask_yes_no "Are you sure you want to uninstall?" "n"; then
+            print_info "Uninstall cancelled"
+            exit 0
+        fi
+    fi
+
+    echo ""
+
+    # Stop and disable services
+    echo -e "${WHITE}Stopping tunnel services...${NC}"
+    sudo systemctl stop orizon-tunnel-terminal.service 2>/dev/null || true
+    sudo systemctl stop orizon-tunnel-https.service 2>/dev/null || true
+    sudo systemctl disable orizon-tunnel-terminal.service 2>/dev/null || true
+    sudo systemctl disable orizon-tunnel-https.service 2>/dev/null || true
+
+    # Stop any multi-hub services
+    for SERVICE in $(systemctl list-unit-files | grep "orizon-tunnel-" | awk '{print $1}'); do
+        sudo systemctl stop "$SERVICE" 2>/dev/null || true
+        sudo systemctl disable "$SERVICE" 2>/dev/null || true
+    done
+    print_ok "Tunnel services stopped"
+
+    # Remove service files
+    echo -e "${WHITE}Removing service files...${NC}"
+    sudo rm -f /etc/systemd/system/orizon-tunnel-*.service
+    sudo systemctl daemon-reload
+    print_ok "Service files removed"
+
+    # Remove agent directory
+    echo -e "${WHITE}Removing agent directory...${NC}"
+    sudo rm -rf /opt/orizon-agent
+    print_ok "Agent directory removed"
+
+    echo ""
+    echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║              UNINSTALL COMPLETE                               ║${NC}"
+    echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    print_info "Orizon Agent has been completely removed from this system."
+    echo ""
+
+    exit 0
+}
+
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    SYSTEM DETECTION                           ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+detect_os() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS_NAME="$NAME"
+        OS_ID="$ID"
+        OS_VERSION="$VERSION_ID"
+        OS_FAMILY="$ID_LIKE"
+    elif [ -f /etc/redhat-release ]; then
+        OS_NAME=$(cat /etc/redhat-release)
+        OS_ID="rhel"
+        OS_FAMILY="rhel fedora"
+    elif [ -f /etc/debian_version ]; then
+        OS_NAME="Debian"
+        OS_ID="debian"
+        OS_FAMILY="debian"
+    else
+        OS_NAME="Unknown"
+        OS_ID="unknown"
+    fi
+
+    # Determine package manager
+    if command -v apt-get &>/dev/null; then
+        PKG_MANAGER="apt"
+        PKG_UPDATE="apt-get update -qq"
+        PKG_INSTALL="apt-get install -y"
+    elif command -v dnf &>/dev/null; then
+        PKG_MANAGER="dnf"
+        PKG_UPDATE="dnf check-update || true"
+        PKG_INSTALL="dnf install -y"
+    elif command -v yum &>/dev/null; then
+        PKG_MANAGER="yum"
+        PKG_UPDATE="yum check-update || true"
+        PKG_INSTALL="yum install -y"
+    else
+        PKG_MANAGER="unknown"
+    fi
+}
+
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    SECURITY AUDIT                             ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+SECURITY_SCORE=0
+MAX_SCORE=100
+
+audit_security() {
+    print_section "PHASE 1: SECURITY AUDIT"
+    echo ""
+    echo -e "${WHITE}Analyzing current security configuration...${NC}"
+    echo ""
+
+    SECURITY_SCORE=0
+
+    # 1. Firewall Check
+    echo -e "${WHITE}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${WHITE}│  FIREWALL STATUS                                            │${NC}"
+    echo -e "${WHITE}└─────────────────────────────────────────────────────────────┘${NC}"
+
+    FIREWALL_ENABLED="false"
+    FIREWALL_TYPE="none"
+    FIREWALL_POLICY="ACCEPT"
+
+    if command -v ufw &>/dev/null; then
+        UFW_STATUS=$(sudo ufw status 2>/dev/null | head -1)
+        if echo "$UFW_STATUS" | grep -q "active"; then
+            FIREWALL_ENABLED="true"
+            FIREWALL_TYPE="ufw"
+            FIREWALL_POLICY=$(sudo ufw status verbose | grep "Default:" | head -1 | awk '{print $2}')
+            print_ok "UFW Firewall: ENABLED (Default: $FIREWALL_POLICY)"
+            ((SECURITY_SCORE+=15))
+        else
+            print_fail "UFW Firewall: DISABLED"
+        fi
+    elif command -v firewall-cmd &>/dev/null; then
+        if sudo firewall-cmd --state 2>/dev/null | grep -q "running"; then
+            FIREWALL_ENABLED="true"
+            FIREWALL_TYPE="firewalld"
+            FIREWALL_ZONE=$(sudo firewall-cmd --get-default-zone)
+            print_ok "FirewallD: ENABLED (Zone: $FIREWALL_ZONE)"
+            ((SECURITY_SCORE+=15))
+        else
+            print_fail "FirewallD: NOT RUNNING"
+        fi
+    elif sudo iptables -L INPUT 2>/dev/null | grep -qE "DROP|REJECT"; then
+        FIREWALL_ENABLED="true"
+        FIREWALL_TYPE="iptables"
+        print_ok "IPTables: Rules detected"
+        ((SECURITY_SCORE+=10))
+    else
+        print_fail "No active firewall detected"
+    fi
+    echo ""
+
+    # 2. SSH Configuration
+    echo -e "${WHITE}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${WHITE}│  SSH CONFIGURATION                                          │${NC}"
+    echo -e "${WHITE}└─────────────────────────────────────────────────────────────┘${NC}"
+
+    SSH_PORT=22
+    SSH_ROOT_LOGIN="unknown"
+    SSH_PASSWORD_AUTH="unknown"
+    SSH_PROTOCOL="2"
+
+    if [ -f /etc/ssh/sshd_config ]; then
+        SSH_PORT=$(grep -E "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' || echo "22")
+        [ -z "$SSH_PORT" ] && SSH_PORT=22
+
+        ROOT_LINE=$(grep -E "^PermitRootLogin " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+        if [ -n "$ROOT_LINE" ]; then
+            SSH_ROOT_LOGIN="$ROOT_LINE"
+        else
+            SSH_ROOT_LOGIN="yes"  # Default
+        fi
+
+        PASS_LINE=$(grep -E "^PasswordAuthentication " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+        if [ -n "$PASS_LINE" ]; then
+            SSH_PASSWORD_AUTH="$PASS_LINE"
+        else
+            SSH_PASSWORD_AUTH="yes"  # Default
+        fi
+
+        echo "   Port: $SSH_PORT"
+
+        if [ "$SSH_ROOT_LOGIN" = "no" ]; then
+            print_ok "Root Login: DISABLED"
+            ((SECURITY_SCORE+=15))
+        elif [ "$SSH_ROOT_LOGIN" = "prohibit-password" ]; then
+            print_ok "Root Login: Keys only"
+            ((SECURITY_SCORE+=10))
+        else
+            print_fail "Root Login: ENABLED (Recommended: no)"
+        fi
+
+        if [ "$SSH_PASSWORD_AUTH" = "no" ]; then
+            print_ok "Password Auth: DISABLED (Key-based only)"
+            ((SECURITY_SCORE+=15))
+        else
+            print_warn "Password Auth: ENABLED (Recommended: no)"
+        fi
+    else
+        print_warn "SSH config not found at /etc/ssh/sshd_config"
+    fi
+    echo ""
+
+    # 3. Security Modules
+    echo -e "${WHITE}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${WHITE}│  SECURITY MODULES                                           │${NC}"
+    echo -e "${WHITE}└─────────────────────────────────────────────────────────────┘${NC}"
+
+    APPARMOR_STATUS="disabled"
+    SELINUX_STATUS="disabled"
+
+    # AppArmor check
+    if [ -d /sys/kernel/security/apparmor ]; then
+        if command -v aa-status &>/dev/null; then
+            AA_ENFORCING=$(sudo aa-status 2>/dev/null | grep "profiles are in enforce mode" | awk '{print $1}')
+            if [ -n "$AA_ENFORCING" ] && [ "$AA_ENFORCING" != "0" ]; then
+                APPARMOR_STATUS="enforcing"
+                print_ok "AppArmor: ENFORCING ($AA_ENFORCING profiles)"
+                ((SECURITY_SCORE+=10))
+            else
+                APPARMOR_STATUS="loaded"
+                print_warn "AppArmor: LOADED but not enforcing"
+                ((SECURITY_SCORE+=5))
+            fi
+        else
+            print_warn "AppArmor: Present but aa-status not available"
+        fi
+    fi
+
+    # SELinux check
+    if command -v getenforce &>/dev/null; then
+        SELINUX_STATUS=$(getenforce 2>/dev/null | tr '[:upper:]' '[:lower:]')
+        case "$SELINUX_STATUS" in
+            enforcing)
+                print_ok "SELinux: ENFORCING"
+                ((SECURITY_SCORE+=10))
+                ;;
+            permissive)
+                print_warn "SELinux: PERMISSIVE (Recommended: enforcing)"
+                ((SECURITY_SCORE+=5))
+                ;;
+            *)
+                print_warn "SELinux: $SELINUX_STATUS"
+                ;;
+        esac
+    fi
+
+    if [ "$APPARMOR_STATUS" = "disabled" ] && [ "$SELINUX_STATUS" = "disabled" ]; then
+        print_fail "No MAC (AppArmor/SELinux) active"
+    fi
+    echo ""
+
+    # 4. Audit Daemon
+    echo -e "${WHITE}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${WHITE}│  AUDIT LOGGING                                              │${NC}"
+    echo -e "${WHITE}└─────────────────────────────────────────────────────────────┘${NC}"
+
+    AUDITD_ENABLED="false"
+    if command -v auditctl &>/dev/null; then
+        if systemctl is-active auditd &>/dev/null 2>&1; then
+            AUDITD_ENABLED="true"
+            print_ok "Audit Daemon: RUNNING"
+            ((SECURITY_SCORE+=10))
+        else
+            print_fail "Audit Daemon: NOT RUNNING"
+        fi
+    else
+        print_fail "Audit Daemon: NOT INSTALLED"
+    fi
+    echo ""
+
+    # 5. Antivirus
+    echo -e "${WHITE}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${WHITE}│  ANTIVIRUS                                                  │${NC}"
+    echo -e "${WHITE}└─────────────────────────────────────────────────────────────┘${NC}"
+
+    AV_INSTALLED="false"
+    if command -v clamscan &>/dev/null; then
+        AV_INSTALLED="true"
+        print_ok "ClamAV: INSTALLED"
+        if systemctl is-active clamav-freshclam &>/dev/null 2>&1; then
+            print_ok "ClamAV Updates: RUNNING"
+            ((SECURITY_SCORE+=5))
+        fi
+    else
+        print_info "ClamAV: NOT INSTALLED (Optional)"
+    fi
+    echo ""
+
+    # 6. Open Ports
+    echo -e "${WHITE}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${WHITE}│  OPEN PORTS (TCP LISTENING)                                 │${NC}"
+    echo -e "${WHITE}└─────────────────────────────────────────────────────────────┘${NC}"
+
+    echo ""
+    printf "   ${WHITE}%-8s %-15s %-25s %s${NC}\n" "PORT" "PROTOCOL" "PROCESS" "RECOMMENDATION"
+    echo "   ────────────────────────────────────────────────────────────"
+
+    OPEN_PORTS=()
+    while IFS= read -r line; do
+        PORT=$(echo "$line" | awk '{print $4}' | sed 's/.*://')
+        PROCESS=$(echo "$line" | sed 's/.*users:(("//' | sed 's/",.*//' | cut -c1-20)
+        [ -z "$PROCESS" ] && PROCESS="unknown"
+
+        # Determine recommendation
+        RECOMMENDATION=""
+        case "$PORT" in
+            22)   RECOMMENDATION="${GREEN}Keep (Orizon SSH)${NC}" ;;
+            443)  RECOMMENDATION="${GREEN}Keep (HTTPS)${NC}" ;;
+            80)   RECOMMENDATION="${YELLOW}Consider 443 only${NC}" ;;
+            631)  RECOMMENDATION="${RED}Close (CUPS)${NC}" ;;
+            3389) RECOMMENDATION="${YELLOW}RDP - Verify need${NC}" ;;
+            5900) RECOMMENDATION="${YELLOW}VNC - Verify need${NC}" ;;
+            *)    RECOMMENDATION="${YELLOW}Verify need${NC}" ;;
+        esac
+
+        printf "   %-8s %-15s %-25s %b\n" "$PORT" "tcp" "$PROCESS" "$RECOMMENDATION"
+        OPEN_PORTS+=("$PORT:$PROCESS")
+    done < <(ss -tlnp 2>/dev/null | grep LISTEN | head -20)
+
+    echo ""
+    print_info "Total open ports: ${#OPEN_PORTS[@]}"
+
+    # Less ports = higher score
+    if [ ${#OPEN_PORTS[@]} -le 3 ]; then
+        ((SECURITY_SCORE+=10))
+    elif [ ${#OPEN_PORTS[@]} -le 6 ]; then
+        ((SECURITY_SCORE+=5))
+    fi
+    echo ""
+
+    # 7. SSL/TLS Info
+    echo -e "${WHITE}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${WHITE}│  SSL/TLS                                                    │${NC}"
+    echo -e "${WHITE}└─────────────────────────────────────────────────────────────┘${NC}"
+
+    if command -v openssl &>/dev/null; then
+        OPENSSL_VERSION=$(openssl version 2>/dev/null | awk '{print $2}')
+        print_ok "OpenSSL: $OPENSSL_VERSION"
+        ((SECURITY_SCORE+=5))
+    else
+        print_fail "OpenSSL: NOT INSTALLED"
+    fi
+    echo ""
+
+    # Calculate final score
+    echo -e "${WHITE}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${WHITE}║                    SECURITY SCORE                             ║${NC}"
+    echo -e "${WHITE}╠═══════════════════════════════════════════════════════════════╣${NC}"
+
+    # Color based on score
+    if [ $SECURITY_SCORE -ge 70 ]; then
+        SCORE_COLOR=$GREEN
+        SCORE_LABEL="GOOD"
+    elif [ $SECURITY_SCORE -ge 50 ]; then
+        SCORE_COLOR=$YELLOW
+        SCORE_LABEL="NEEDS IMPROVEMENT"
+    else
+        SCORE_COLOR=$RED
+        SCORE_LABEL="CRITICAL"
+    fi
+
+    echo -e "${WHITE}║${NC}                                                               ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}          Current Score: ${SCORE_COLOR}${SECURITY_SCORE}/100 - ${SCORE_LABEL}${NC}               ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}                                                               ${WHITE}║${NC}"
+    echo -e "${WHITE}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    INTERACTIVE HARDENING                      ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+# Hardening options - defaults
+HARDEN_FIREWALL="y"
+HARDEN_SSH_ROOT="y"
+HARDEN_SSH_PASSWORD="n"  # Default no because needs SSH key setup
+HARDEN_AUDITD="y"
+HARDEN_APPARMOR="y"
+KEEP_PORTS="22,443"
+
+interactive_hardening() {
+    print_section "PHASE 2: HARDENING CONFIGURATION"
+    echo ""
+    echo -e "${WHITE}Configure security hardening options:${NC}"
+    echo ""
+
+    # Check if running interactively
+    if [ -t 0 ]; then
+        INTERACTIVE="true"
+    else
+        INTERACTIVE="false"
+        print_info "Non-interactive mode detected. Using secure defaults."
+        echo ""
+        return
+    fi
+
+    # 1. Firewall
+    echo -e "${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│  [1/5] FIREWALL CONFIGURATION                              │${NC}"
+    echo -e "${CYAN}└─────────────────────────────────────────────────────────────┘${NC}"
+
+    if [ "$FIREWALL_ENABLED" = "false" ]; then
+        echo ""
+        echo "   Your firewall is currently DISABLED."
+        echo "   Enabling the firewall will block all incoming connections"
+        echo "   except those explicitly allowed."
+        echo ""
+        if ask_yes_no "   Enable firewall with default DENY policy?" "y"; then
+            HARDEN_FIREWALL="y"
+            print_ok "Firewall will be enabled"
+
+            echo ""
+            echo "   Enter ports to ALLOW (comma-separated), or press Enter for default:"
+            echo "   Default: 22 (SSH), 443 (HTTPS)"
+            read -p "   Ports to allow: " USER_PORTS
+            [ -n "$USER_PORTS" ] && KEEP_PORTS="$USER_PORTS"
+        else
+            HARDEN_FIREWALL="n"
+            print_warn "Firewall will remain disabled"
+        fi
+    else
+        print_ok "Firewall already enabled"
+        HARDEN_FIREWALL="n"  # Already enabled
+    fi
+    echo ""
+
+    # 2. SSH Root Login
+    echo -e "${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│  [2/5] SSH ROOT LOGIN                                       │${NC}"
+    echo -e "${CYAN}└─────────────────────────────────────────────────────────────┘${NC}"
+
+    if [ "$SSH_ROOT_LOGIN" != "no" ]; then
+        echo ""
+        echo "   Root login via SSH is currently: $SSH_ROOT_LOGIN"
+        echo "   Disabling root login improves security by requiring"
+        echo "   users to authenticate as a regular user first."
+        echo ""
+        echo -e "   ${YELLOW}⚠ Make sure you have another user with sudo access!${NC}"
+        echo ""
+        if ask_yes_no "   Disable SSH root login?" "y"; then
+            HARDEN_SSH_ROOT="y"
+            print_ok "SSH root login will be disabled"
+        else
+            HARDEN_SSH_ROOT="n"
+            print_warn "SSH root login will remain enabled"
+        fi
+    else
+        print_ok "SSH root login already disabled"
+        HARDEN_SSH_ROOT="n"
+    fi
+    echo ""
+
+    # 3. SSH Password Authentication
+    echo -e "${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│  [3/5] SSH PASSWORD AUTHENTICATION                          │${NC}"
+    echo -e "${CYAN}└─────────────────────────────────────────────────────────────┘${NC}"
+
+    if [ "$SSH_PASSWORD_AUTH" != "no" ]; then
+        echo ""
+        echo "   Password authentication is currently: ENABLED"
+        echo "   Disabling password auth and using SSH keys is more secure."
+        echo ""
+        echo -e "   ${RED}⚠ WARNING: If you disable password auth without having${NC}"
+        echo -e "   ${RED}   SSH keys configured, you may lose access to this server!${NC}"
+        echo ""
+        if ask_yes_no "   Disable SSH password authentication?" "n"; then
+            HARDEN_SSH_PASSWORD="y"
+            print_ok "SSH password auth will be disabled"
+        else
+            HARDEN_SSH_PASSWORD="n"
+            print_info "SSH password auth will remain enabled"
+        fi
+    else
+        print_ok "SSH password auth already disabled"
+        HARDEN_SSH_PASSWORD="n"
+    fi
+    echo ""
+
+    # 4. Audit Daemon
+    echo -e "${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│  [4/5] AUDIT DAEMON (auditd)                                │${NC}"
+    echo -e "${CYAN}└─────────────────────────────────────────────────────────────┘${NC}"
+
+    if [ "$AUDITD_ENABLED" = "false" ]; then
+        echo ""
+        echo "   Audit daemon provides detailed logging of system events"
+        echo "   for security monitoring and compliance."
+        echo ""
+        if ask_yes_no "   Install and enable audit daemon?" "y"; then
+            HARDEN_AUDITD="y"
+            print_ok "Audit daemon will be installed"
+        else
+            HARDEN_AUDITD="n"
+        fi
+    else
+        print_ok "Audit daemon already running"
+        HARDEN_AUDITD="n"
+    fi
+    echo ""
+
+    # 5. AppArmor (Debian/Ubuntu only)
+    echo -e "${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│  [5/5] APPARMOR ENFORCEMENT                                 │${NC}"
+    echo -e "${CYAN}└─────────────────────────────────────────────────────────────┘${NC}"
+
+    if [ "$APPARMOR_STATUS" = "loaded" ]; then
+        echo ""
+        echo "   AppArmor is loaded but not all profiles are enforcing."
+        echo "   Enabling enforce mode provides better protection."
+        echo ""
+        if ask_yes_no "   Set AppArmor profiles to enforce mode?" "y"; then
+            HARDEN_APPARMOR="y"
+            print_ok "AppArmor will be set to enforce"
+        else
+            HARDEN_APPARMOR="n"
+        fi
+    elif [ "$APPARMOR_STATUS" = "enforcing" ]; then
+        print_ok "AppArmor already enforcing"
+        HARDEN_APPARMOR="n"
+    else
+        HARDEN_APPARMOR="n"
+    fi
+    echo ""
+}
+
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    APPLY HARDENING                            ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+apply_hardening() {
+    print_section "PHASE 3: APPLYING SECURITY HARDENING"
+    echo ""
+
+    # 1. Firewall
+    if [ "$HARDEN_FIREWALL" = "y" ]; then
+        echo -e "${WHITE}[1/5] Configuring Firewall...${NC}"
+
+        if [ "$PKG_MANAGER" = "apt" ]; then
+            sudo $PKG_INSTALL ufw -qq 2>/dev/null || true
+            sudo ufw default deny incoming
+            sudo ufw default allow outgoing
+
+            IFS=',' read -ra PORTS <<< "$KEEP_PORTS"
+            for PORT in "${PORTS[@]}"; do
+                PORT=$(echo "$PORT" | tr -d ' ')
+                sudo ufw allow "$PORT/tcp"
+                print_ok "Allowed port $PORT/tcp"
+            done
+
+            sudo ufw --force enable
+            print_ok "UFW firewall enabled"
+        elif [ "$PKG_MANAGER" = "dnf" ] || [ "$PKG_MANAGER" = "yum" ]; then
+            sudo $PKG_INSTALL firewalld -y 2>/dev/null || true
+            sudo systemctl enable firewalld
+            sudo systemctl start firewalld
+
+            IFS=',' read -ra PORTS <<< "$KEEP_PORTS"
+            for PORT in "${PORTS[@]}"; do
+                PORT=$(echo "$PORT" | tr -d ' ')
+                sudo firewall-cmd --permanent --add-port="$PORT/tcp"
+                print_ok "Allowed port $PORT/tcp"
+            done
+
+            sudo firewall-cmd --reload
+            print_ok "FirewallD enabled"
+        fi
+        echo ""
+    fi
+
+    # 2. SSH Root Login
+    if [ "$HARDEN_SSH_ROOT" = "y" ]; then
+        echo -e "${WHITE}[2/5] Disabling SSH Root Login...${NC}"
+        sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+        # Add if not exists
+        grep -q "^PermitRootLogin" /etc/ssh/sshd_config || echo "PermitRootLogin no" | sudo tee -a /etc/ssh/sshd_config
+        print_ok "SSH root login disabled"
+        SSH_RESTART_NEEDED="y"
+        echo ""
+    fi
+
+    # 3. SSH Password Auth
+    if [ "$HARDEN_SSH_PASSWORD" = "y" ]; then
+        echo -e "${WHITE}[3/5] Disabling SSH Password Authentication...${NC}"
+        sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+        grep -q "^PasswordAuthentication" /etc/ssh/sshd_config || echo "PasswordAuthentication no" | sudo tee -a /etc/ssh/sshd_config
+        print_ok "SSH password authentication disabled"
+        SSH_RESTART_NEEDED="y"
+        echo ""
+    fi
+
+    # 4. Audit Daemon
+    if [ "$HARDEN_AUDITD" = "y" ]; then
+        echo -e "${WHITE}[4/5] Installing Audit Daemon...${NC}"
+        if [ "$PKG_MANAGER" = "apt" ]; then
+            sudo $PKG_INSTALL auditd audispd-plugins -qq 2>/dev/null || true
+        else
+            sudo $PKG_INSTALL audit -y 2>/dev/null || true
+        fi
+        sudo systemctl enable auditd
+        sudo systemctl start auditd
+        print_ok "Audit daemon installed and started"
+        echo ""
+    fi
+
+    # 5. AppArmor
+    if [ "$HARDEN_APPARMOR" = "y" ]; then
+        echo -e "${WHITE}[5/5] Enforcing AppArmor Profiles...${NC}"
+        if command -v aa-enforce &>/dev/null; then
+            sudo aa-enforce /etc/apparmor.d/* 2>/dev/null || true
+            print_ok "AppArmor profiles set to enforce mode"
+        fi
+        echo ""
+    fi
+
+    # Restart SSH if needed
+    if [ "$SSH_RESTART_NEEDED" = "y" ]; then
+        echo -e "${WHITE}Restarting SSH service...${NC}"
+        sudo systemctl restart sshd 2>/dev/null || sudo systemctl restart ssh 2>/dev/null || true
+        print_ok "SSH service restarted"
+    fi
+
+    echo ""
+    print_ok "Security hardening applied successfully"
+}
+
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    AGENT INSTALLATION                         ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+install_dependencies() {
+    print_section "PHASE 4: INSTALLING DEPENDENCIES"
+    echo ""
+
+    echo -e "${WHITE}Installing required packages...${NC}"
+    echo ""
+
+    sudo $PKG_UPDATE 2>/dev/null || true
+
+    # Install based on package manager
+    if [ "$PKG_MANAGER" = "apt" ]; then
+        sudo $PKG_INSTALL curl openssh-client jq autossh -qq
+    elif [ "$PKG_MANAGER" = "dnf" ]; then
+        sudo $PKG_INSTALL curl openssh-clients jq autossh -y
+    elif [ "$PKG_MANAGER" = "yum" ]; then
+        sudo $PKG_INSTALL curl openssh-clients jq -y
+        # Install autossh from EPEL if available
+        sudo yum install -y epel-release 2>/dev/null || true
+        sudo yum install -y autossh 2>/dev/null || true
+    fi
+
+    print_ok "Dependencies installed"
+    echo ""
+}
+
+setup_agent() {
+    print_section "PHASE 5: SETTING UP ORIZON AGENT"
+    echo ""
+
+    AGENT_DIR="/opt/orizon-agent"
+    SSH_KEY_DIR="$AGENT_DIR/.ssh"
+
+    # Create directories
+    echo -e "${WHITE}Creating agent directory...${NC}"
+    sudo mkdir -p "$AGENT_DIR"
+    sudo mkdir -p "$SSH_KEY_DIR"
+    sudo chmod 700 "$SSH_KEY_DIR"
+    print_ok "Agent directory created: $AGENT_DIR"
+    echo ""
+
+    # Generate SSH key
+    echo -e "${WHITE}Generating SSH key pair...${NC}"
+    if [ ! -f "$SSH_KEY_DIR/id_ed25519" ]; then
+        sudo ssh-keygen -t ed25519 -f "$SSH_KEY_DIR/id_ed25519" -N "" -C "orizon-agent-$NODE_ID"
+        print_ok "SSH key generated"
+    else
+        print_info "SSH key already exists"
+    fi
+    echo ""
+
+    # Register public key with hub
+    echo -e "${WHITE}Registering SSH key with Hub...${NC}"
+    PUBLIC_KEY=$(sudo cat "$SSH_KEY_DIR/id_ed25519.pub")
+
+    REGISTER_RESPONSE=$(curl -fsSL -X POST "${API_BASE_URL}/nodes/$NODE_ID/register-key" \
+        -H "Authorization: Bearer $AGENT_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{\"publicKey\": \"$PUBLIC_KEY\"}" 2>/dev/null || echo '{"error": "Failed to connect"}')
+
+    if echo "$REGISTER_RESPONSE" | grep -q '"success"'; then
+        print_ok "SSH key registered with Hub"
+    else
+        print_warn "Key registration response: $REGISTER_RESPONSE"
+        print_info "Continuing with local key setup..."
+    fi
+    echo ""
+
+    # Create agent config
+    echo -e "${WHITE}Creating agent configuration...${NC}"
+    sudo tee "$AGENT_DIR/config.json" > /dev/null <<EOF
 {
   "nodeId": "$NODE_ID",
+  "nodeName": "$NODE_NAME",
   "agentToken": "$AGENT_TOKEN",
   "hubHost": "$HUB_HOST",
   "hubSshPort": $HUB_SSH_PORT,
   "tunnelType": "$TUNNEL_TYPE",
   "apiBaseUrl": "$API_BASE_URL",
-  "applications": {
-{{#each applicationPorts}}
-    "{{@key}}": {
-      "localPort": {{this.local}},
-      "remotePort": {{this.remote}}
-    }{{#unless @last}},{{/unless}}
-{{/each}}
+  "tunnels": {
+    "terminal": {
+      "localPort": $TERMINAL_LOCAL_PORT,
+      "remotePort": $TERMINAL_REMOTE_PORT
+    },
+    "https": {
+      "localPort": $HTTPS_LOCAL_PORT,
+      "remotePort": $HTTPS_REMOTE_PORT
+    }
+  },
+  "installedAt": "$(date -Iseconds)",
+  "osInfo": {
+    "name": "$OS_NAME",
+    "id": "$OS_ID",
+    "version": "$OS_VERSION"
   }
 }
 EOF
+    print_ok "Configuration saved"
+    echo ""
+}
 
-echo ""
-echo "🔑 4. Setting up SSH tunnel authentication..."
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    TUNNEL SERVICES                            ║
+# ╚═══════════════════════════════════════════════════════════════╝
 
-# Generate SSH key pair if not exists
-SSH_KEY_DIR="$AGENT_DIR/.ssh"
-sudo mkdir -p "$SSH_KEY_DIR"
-if [ ! -f "$SSH_KEY_DIR/id_ed25519" ]; then
-    sudo ssh-keygen -t ed25519 -f "$SSH_KEY_DIR/id_ed25519" -N "" -C "orizon-agent-$NODE_ID"
-fi
+create_tunnel_services() {
+    print_section "PHASE 6: CREATING TUNNEL SERVICES"
+    echo ""
 
-# Register public key with hub
-PUBLIC_KEY=$(sudo cat "$SSH_KEY_DIR/id_ed25519.pub")
-REGISTER_RESPONSE=$(curl -fsSL -X POST "${API_BASE_URL}/nodes/$NODE_ID/register-key" \
-    -H "Authorization: Bearer $AGENT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"publicKey\": \"$PUBLIC_KEY\"}")
+    AGENT_DIR="/opt/orizon-agent"
+    SSH_KEY="$AGENT_DIR/.ssh/id_ed25519"
 
-if echo "$REGISTER_RESPONSE" | jq -e '.success' > /dev/null 2>&1; then
-    echo "✅ SSH key registered successfully"
-else
-    echo "❌ Failed to register SSH key: $REGISTER_RESPONSE"
-    exit 1
-fi
-
-echo ""
-echo "🚀 5. Creating systemd service..."
-
-sudo tee /etc/systemd/system/orizon-agent.service > /dev/null <<EOF
+    # Terminal Tunnel Service (SSH)
+    echo -e "${WHITE}Creating Terminal Tunnel Service...${NC}"
+    sudo tee /etc/systemd/system/orizon-tunnel-terminal.service > /dev/null <<EOF
 [Unit]
-Description=Orizon Zero Trust Connect Agent
-After=network.target
+Description=Orizon Zero Trust - Terminal Tunnel (SSH Port $TERMINAL_LOCAL_PORT -> Hub:$TERMINAL_REMOTE_PORT)
+Documentation=https://orizon.syneto.eu
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=$AGENT_DIR
-ExecStart=$AGENT_DIR/orizon-agent start
+Environment="AUTOSSH_GATETIME=0"
+Environment="AUTOSSH_POLL=60"
+ExecStart=/usr/bin/autossh -M 0 -N \\
+    -o ServerAliveInterval=30 \\
+    -o ServerAliveCountMax=3 \\
+    -o ExitOnForwardFailure=yes \\
+    -o StrictHostKeyChecking=no \\
+    -o UserKnownHostsFile=/dev/null \\
+    -i $SSH_KEY \\
+    -p $HUB_SSH_PORT \\
+    -R $TERMINAL_REMOTE_PORT:localhost:$TERMINAL_LOCAL_PORT \\
+    $NODE_ID@$HUB_HOST
 Restart=always
 RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
+    print_ok "Terminal tunnel service created"
 
-sudo systemctl daemon-reload
-sudo systemctl enable orizon-agent
-sudo systemctl start orizon-agent
+    # HTTPS Tunnel Service
+    echo -e "${WHITE}Creating HTTPS Tunnel Service...${NC}"
+    sudo tee /etc/systemd/system/orizon-tunnel-https.service > /dev/null <<EOF
+[Unit]
+Description=Orizon Zero Trust - HTTPS Tunnel (Port $HTTPS_LOCAL_PORT -> Hub:$HTTPS_REMOTE_PORT)
+Documentation=https://orizon.syneto.eu
+After=network-online.target
+Wants=network-online.target
 
-echo ""
-echo "⏳ 6. Waiting for agent to connect..."
-sleep 5
+[Service]
+Type=simple
+Environment="AUTOSSH_GATETIME=0"
+Environment="AUTOSSH_POLL=60"
+ExecStart=/usr/bin/autossh -M 0 -N \\
+    -o ServerAliveInterval=30 \\
+    -o ServerAliveCountMax=3 \\
+    -o ExitOnForwardFailure=yes \\
+    -o StrictHostKeyChecking=no \\
+    -o UserKnownHostsFile=/dev/null \\
+    -i $SSH_KEY \\
+    -p $HUB_SSH_PORT \\
+    -R $HTTPS_REMOTE_PORT:localhost:$HTTPS_LOCAL_PORT \\
+    $NODE_ID@$HUB_HOST
+Restart=always
+RestartSec=10
 
-# Check agent status
-if sudo systemctl is-active --quiet orizon-agent; then
-    echo "✅ Agent is running"
-
-    # Verify tunnels
+[Install]
+WantedBy=multi-user.target
+EOF
+    print_ok "HTTPS tunnel service created"
     echo ""
-    echo "🔍 Tunnel status:"
-{{#each applicationPorts}}
-    echo "   - {{@key}}: localhost:{{this.local}} → $HUB_HOST:{{this.remote}}"
-{{/each}}
+
+    {{#if hasMultipleHubs}}
+    # Multi-hub tunnel services
+    echo -e "${WHITE}Creating Multi-Hub Tunnel Services...${NC}"
+    HUB_INDEX=1
+    for HUB_INFO in "${HUB_SERVERS[@]}"; do
+        IFS=':' read -r HUB_NAME HUB_IP HUB_PORT <<< "$HUB_INFO"
+
+        if [ "$HUB_IP" != "$HUB_HOST" ]; then
+            sudo tee /etc/systemd/system/orizon-tunnel-$HUB_NAME.service > /dev/null <<HUBEOF
+[Unit]
+Description=Orizon Zero Trust - Tunnel to $HUB_NAME ($HUB_IP)
+Documentation=https://orizon.syneto.eu
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment="AUTOSSH_GATETIME=0"
+Environment="AUTOSSH_POLL=60"
+ExecStart=/usr/bin/autossh -M 0 -N \\
+    -o ServerAliveInterval=30 \\
+    -o ServerAliveCountMax=3 \\
+    -o ExitOnForwardFailure=yes \\
+    -o StrictHostKeyChecking=no \\
+    -o UserKnownHostsFile=/dev/null \\
+    -i $SSH_KEY \\
+    -p $HUB_PORT \\
+    -R $TERMINAL_REMOTE_PORT:localhost:$TERMINAL_LOCAL_PORT \\
+    -R $HTTPS_REMOTE_PORT:localhost:$HTTPS_LOCAL_PORT \\
+    $NODE_ID@$HUB_IP
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+HUBEOF
+            print_ok "Multi-hub tunnel service created for $HUB_NAME"
+            ((HUB_INDEX++))
+        fi
+    done
+    echo ""
+    {{/if}}
+
+    # Enable and start services
+    echo -e "${WHITE}Enabling and starting tunnel services...${NC}"
+    sudo systemctl daemon-reload
+    sudo systemctl enable orizon-tunnel-terminal.service
+    sudo systemctl enable orizon-tunnel-https.service
+    sudo systemctl start orizon-tunnel-terminal.service
+    sudo systemctl start orizon-tunnel-https.service
+
+    {{#if hasMultipleHubs}}
+    for HUB_INFO in "${HUB_SERVERS[@]}"; do
+        IFS=':' read -r HUB_NAME HUB_IP HUB_PORT <<< "$HUB_INFO"
+        if [ "$HUB_IP" != "$HUB_HOST" ]; then
+            sudo systemctl enable orizon-tunnel-$HUB_NAME.service
+            sudo systemctl start orizon-tunnel-$HUB_NAME.service
+        fi
+    done
+    {{/if}}
+
+    echo ""
+    sleep 3
+
+    # Check status
+    if systemctl is-active --quiet orizon-tunnel-terminal.service; then
+        print_ok "Terminal tunnel: RUNNING"
+    else
+        print_warn "Terminal tunnel: Check logs with: journalctl -u orizon-tunnel-terminal -n 20"
+    fi
+
+    if systemctl is-active --quiet orizon-tunnel-https.service; then
+        print_ok "HTTPS tunnel: RUNNING"
+    else
+        print_warn "HTTPS tunnel: Check logs with: journalctl -u orizon-tunnel-https -n 20"
+    fi
+    echo ""
+}
+
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    HARDENING COLLECTOR                        ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+send_hardening_report() {
+    print_section "PHASE 7: SENDING HARDENING REPORT"
+    echo ""
+
+    echo -e "${WHITE}Collecting and sending security status to Hub...${NC}"
+
+    # Collect current status after hardening
+    FW_ENABLED="false"
+    if command -v ufw &>/dev/null && sudo ufw status | grep -q "active"; then
+        FW_ENABLED="true"
+        FW_POLICY="DENY"
+    elif command -v firewall-cmd &>/dev/null && sudo firewall-cmd --state 2>/dev/null | grep -q "running"; then
+        FW_ENABLED="true"
+        FW_POLICY="zone-based"
+    fi
+
+    # Build JSON payload
+    JSON_PAYLOAD=$(cat <<EOF
+{
+    "agent_token": "$AGENT_TOKEN",
+    "firewall": {
+        "enabled": $FW_ENABLED,
+        "default_policy": "${FW_POLICY:-ACCEPT}"
+    },
+    "antivirus": {
+        "enabled": false,
+        "product_name": null
+    },
+    "open_ports": [],
+    "security_modules": [
+        {"name": "AppArmor", "status": "$APPARMOR_STATUS"},
+        {"name": "SELinux", "status": "$SELINUX_STATUS"}
+    ],
+    "ssh_config": {
+        "password_auth": $([ "$SSH_PASSWORD_AUTH" = "no" ] && echo "false" || echo "true"),
+        "root_login": "$SSH_ROOT_LOGIN",
+        "port": $SSH_PORT
+    },
+    "ssl_info": {
+        "openssl_version": "${OPENSSL_VERSION:-unknown}"
+    },
+    "audit": {
+        "enabled": $(systemctl is-active auditd &>/dev/null && echo "true" || echo "false"),
+        "service_name": "auditd"
+    }
+}
+EOF
+)
+
+    RESPONSE=$(curl -s -X POST "${API_BASE_URL}/nodes/hardening" \
+        -H "Content-Type: application/json" \
+        -d "$JSON_PAYLOAD" 2>/dev/null || echo '{"error": "Failed"}')
+
+    if echo "$RESPONSE" | grep -q '"status":"ok"'; then
+        print_ok "Hardening report sent to Hub"
+    else
+        print_warn "Could not send hardening report: $RESPONSE"
+    fi
+    echo ""
+}
+
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    LOGIN BANNER & CLI TOOL                    ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+setup_login_banner() {
+    print_section "PHASE 8: CONFIGURING LOGIN BANNER & CLI TOOLS"
+
+    echo "Creating Orizon Zero Trust login banner..."
+
+    # Create MOTD script in profile.d (compatible with existing setup)
+    cat > /etc/profile.d/orizon-motd.sh << 'MOTD_EOF'
+#!/bin/bash
+# Orizon Zero Trust Connect - Login Banner
+# Generated by Orizon Agent Installer v3.0.0
+
+# Solo per sessioni interattive
+[[ $- != *i* ]] && return
+
+# Colors
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+BOLD='\033[1m'
+
+# Read config
+CONFIG_FILE="/opt/orizon-agent/config.json"
+if [ -f "$CONFIG_FILE" ]; then
+    NODE_NAME=$(grep -o '"node_name"[^,]*' "$CONFIG_FILE" | cut -d'"' -f4)
+    HUB_HOST=$(grep -o '"hub_host"[^,]*' "$CONFIG_FILE" | cut -d'"' -f4)
 else
-    echo "❌ Agent failed to start. Check logs with: sudo journalctl -u orizon-agent -n 50"
-    exit 1
+    NODE_NAME="Unknown"
+    HUB_HOST="Unknown"
+fi
+
+# Check tunnel status
+TERMINAL_STATUS=$(systemctl is-active orizon-tunnel-terminal 2>/dev/null || echo "N/A")
+HTTPS_STATUS=$(systemctl is-active orizon-tunnel-https 2>/dev/null || echo "N/A")
+
+# Calculate security score
+SCORE=50
+systemctl is-active --quiet ufw 2>/dev/null && SCORE=$((SCORE + 10))
+grep -q "^PermitRootLogin no" /etc/ssh/sshd_config 2>/dev/null && SCORE=$((SCORE + 15))
+grep -q "^PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null && SCORE=$((SCORE + 10))
+systemctl is-active --quiet auditd 2>/dev/null && SCORE=$((SCORE + 10))
+aa-status &>/dev/null && SCORE=$((SCORE + 5))
+
+# Score color
+if [ $SCORE -ge 80 ]; then
+    SCORE_COLOR=$GREEN
+    SCORE_TEXT="EXCELLENT"
+elif [ $SCORE -ge 60 ]; then
+    SCORE_COLOR=$CYAN
+    SCORE_TEXT="GOOD"
+else
+    SCORE_COLOR=$YELLOW
+    SCORE_TEXT="NEEDS WORK"
 fi
 
 echo ""
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║  ✅ INSTALLATION COMPLETE                                 ║"
-echo "╠════════════════════════════════════════════════════════════╣"
-echo "║  Node ID: $NODE_ID                                         ║"
-echo "║  Hub: $HUB_HOST:$HUB_SSH_PORT                              ║"
-echo "║  Tunnel Type: $TUNNEL_TYPE                                 ║"
-echo "║                                                            ║"
-echo "║  Useful commands:                                          ║"
-echo "║  - Check status: sudo systemctl status orizon-agent        ║"
-echo "║  - View logs: sudo journalctl -u orizon-agent -f           ║"
-echo "║  - Restart: sudo systemctl restart orizon-agent            ║"
-echo "╚════════════════════════════════════════════════════════════╝"
+echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║${NC}       ${BOLD}ORIZON ZERO TRUST CONNECT${NC} - Edge Node                   ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}       Enterprise Security Hardening v3.0.0                    ${CYAN}║${NC}"
+echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+echo -e "${CYAN}║${NC}  Node: ${BOLD}$NODE_NAME${NC}  |  Hub: $HUB_HOST"
+echo -e "${CYAN}║${NC}  Security Score: ${SCORE_COLOR}${BOLD}$SCORE/100${NC} ${SCORE_COLOR}$SCORE_TEXT${NC}"
+echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+printf "${CYAN}║${NC}  %-18s %-12s %-18s %-12s${CYAN}║${NC}\n" "Terminal Tunnel:" "$TERMINAL_STATUS" "HTTPS Tunnel:" "$HTTPS_STATUS"
+echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+echo "  Run: orizon-hardening --status  for detailed security info"
+echo ""
+MOTD_EOF
+
+    chmod +x /etc/profile.d/orizon-motd.sh
+    print_ok "Login banner configured (/etc/profile.d/orizon-motd.sh)"
+
+    # Create enhanced CLI tool
+    echo "Creating orizon-hardening CLI tool..."
+
+    cat > /usr/local/bin/orizon-hardening << 'CLI_EOF'
+#!/bin/bash
+# Orizon Zero Trust Connect - Hardening CLI Tool
+# Version 3.0.0
+
+# Colors
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+BOLD='\033[1m'
+
+# Read config
+CONFIG_FILE="/opt/orizon-agent/config.json"
+if [ -f "$CONFIG_FILE" ]; then
+    NODE_ID=$(grep -o '"node_id"[^,]*' "$CONFIG_FILE" | cut -d'"' -f4)
+    NODE_NAME=$(grep -o '"node_name"[^,]*' "$CONFIG_FILE" | cut -d'"' -f4)
+    HUB_HOST=$(grep -o '"hub_host"[^,]*' "$CONFIG_FILE" | cut -d'"' -f4)
+    HUB_PORT=$(grep -o '"hub_ssh_port"[^,]*' "$CONFIG_FILE" | cut -d':' -f2 | tr -d ' ,}')
+    TERMINAL_PORT=$(grep -o '"terminal_remote_port"[^,]*' "$CONFIG_FILE" | cut -d':' -f2 | tr -d ' ,}')
+    HTTPS_PORT=$(grep -o '"https_remote_port"[^,]*' "$CONFIG_FILE" | cut -d':' -f2 | tr -d ' ,}')
+    INSTALLED=$(grep -o '"installed_at"[^,]*' "$CONFIG_FILE" | cut -d'"' -f4)
+else
+    NODE_ID="Not configured"
+    NODE_NAME="Not configured"
+    HUB_HOST="Not configured"
+    HUB_PORT="2222"
+    TERMINAL_PORT="N/A"
+    HTTPS_PORT="N/A"
+    INSTALLED="N/A"
+fi
+
+calculate_score() {
+    SCORE=50
+    systemctl is-active --quiet ufw 2>/dev/null && SCORE=$((SCORE + 10))
+    grep -q "^PermitRootLogin no" /etc/ssh/sshd_config 2>/dev/null && SCORE=$((SCORE + 15))
+    grep -q "^PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null && SCORE=$((SCORE + 10))
+    systemctl is-active --quiet auditd 2>/dev/null && SCORE=$((SCORE + 10))
+    aa-status &>/dev/null && SCORE=$((SCORE + 5))
+    echo $SCORE
+}
+
+show_status() {
+    SCORE=$(calculate_score)
+
+    if [ $SCORE -ge 80 ]; then
+        SCORE_COLOR=$GREEN
+        SCORE_TEXT="EXCELLENT"
+    elif [ $SCORE -ge 60 ]; then
+        SCORE_COLOR=$CYAN
+        SCORE_TEXT="GOOD"
+    else
+        SCORE_COLOR=$YELLOW
+        SCORE_TEXT="NEEDS IMPROVEMENT"
+    fi
+
+    echo ""
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}       ${BOLD}ORIZON HARDENING STATUS${NC}                                 ${CYAN}║${NC}"
+    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${NC}  Node:      ${BOLD}$NODE_NAME${NC}"
+    echo -e "${CYAN}║${NC}  Node ID:   $NODE_ID"
+    echo -e "${CYAN}║${NC}  Hub:       $HUB_HOST:$HUB_PORT"
+    echo -e "${CYAN}║${NC}  Installed: $INSTALLED"
+    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}SECURITY SCORE:${NC} ${SCORE_COLOR}${BOLD}$SCORE/100${NC} - ${SCORE_COLOR}$SCORE_TEXT${NC}"
+    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}SERVICES${NC}"
+
+    # Terminal Tunnel
+    if systemctl is-active --quiet orizon-tunnel-terminal 2>/dev/null; then
+        echo -e "${CYAN}║${NC}    ${GREEN}●${NC} Terminal Tunnel: ${GREEN}active${NC} (SSH -> Hub:$TERMINAL_PORT)"
+    else
+        echo -e "${CYAN}║${NC}    ${RED}●${NC} Terminal Tunnel: ${RED}inactive${NC}"
+    fi
+
+    # HTTPS Tunnel
+    if systemctl is-active --quiet orizon-tunnel-https 2>/dev/null; then
+        echo -e "${CYAN}║${NC}    ${GREEN}●${NC} HTTPS Tunnel:    ${GREEN}active${NC} (443 -> Hub:$HTTPS_PORT)"
+    else
+        echo -e "${CYAN}║${NC}    ${RED}●${NC} HTTPS Tunnel:    ${RED}inactive${NC}"
+    fi
+
+    # Firewall
+    if systemctl is-active --quiet ufw 2>/dev/null; then
+        echo -e "${CYAN}║${NC}    ${GREEN}●${NC} Firewall (UFW):  ${GREEN}active${NC}"
+    else
+        echo -e "${CYAN}║${NC}    ${RED}●${NC} Firewall (UFW):  ${RED}inactive${NC}"
+    fi
+
+    # Fail2ban
+    if systemctl is-active --quiet fail2ban 2>/dev/null; then
+        echo -e "${CYAN}║${NC}    ${GREEN}●${NC} Fail2ban:        ${GREEN}active${NC}"
+    else
+        echo -e "${CYAN}║${NC}    ${YELLOW}●${NC} Fail2ban:        ${YELLOW}not installed${NC}"
+    fi
+
+    # Auditd
+    if systemctl is-active --quiet auditd 2>/dev/null; then
+        echo -e "${CYAN}║${NC}    ${GREEN}●${NC} Audit Daemon:    ${GREEN}active${NC}"
+    else
+        echo -e "${CYAN}║${NC}    ${YELLOW}●${NC} Audit Daemon:    ${YELLOW}inactive${NC}"
+    fi
+
+    # Nginx
+    if systemctl is-active --quiet nginx 2>/dev/null; then
+        echo -e "${CYAN}║${NC}    ${GREEN}●${NC} Nginx:           ${GREEN}active${NC}"
+    else
+        echo -e "${CYAN}║${NC}    ${YELLOW}●${NC} Nginx:           ${YELLOW}not running${NC}"
+    fi
+
+    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}SSH HARDENING${NC}"
+
+    if grep -q "^PermitRootLogin no" /etc/ssh/sshd_config 2>/dev/null; then
+        echo -e "${CYAN}║${NC}    ${GREEN}✓${NC} Root login disabled"
+    else
+        echo -e "${CYAN}║${NC}    ${YELLOW}!${NC} Root login enabled (consider disabling)"
+    fi
+
+    if grep -q "^PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null; then
+        echo -e "${CYAN}║${NC}    ${GREEN}✓${NC} Password auth disabled (key-only)"
+    else
+        echo -e "${CYAN}║${NC}    ${YELLOW}!${NC} Password auth enabled"
+    fi
+
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+show_logs() {
+    echo ""
+    echo -e "${CYAN}=== Terminal Tunnel Logs (last 20 lines) ===${NC}"
+    journalctl -u orizon-tunnel-terminal -n 20 --no-pager 2>/dev/null || echo "No logs available"
+    echo ""
+    echo -e "${CYAN}=== HTTPS Tunnel Logs (last 20 lines) ===${NC}"
+    journalctl -u orizon-tunnel-https -n 20 --no-pager 2>/dev/null || echo "No logs available"
+}
+
+restart_tunnels() {
+    echo "Restarting Orizon tunnels..."
+    systemctl restart orizon-tunnel-terminal 2>/dev/null && echo -e "${GREEN}✓${NC} Terminal tunnel restarted"
+    systemctl restart orizon-tunnel-https 2>/dev/null && echo -e "${GREEN}✓${NC} HTTPS tunnel restarted"
+}
+
+show_help() {
+    echo ""
+    echo -e "${BOLD}Orizon Zero Trust Connect - Hardening CLI${NC}"
+    echo ""
+    echo "Usage: orizon-hardening [OPTION]"
+    echo ""
+    echo "Options:"
+    echo "  -s, --status     Show detailed security status (default)"
+    echo "  -l, --logs       Show tunnel service logs"
+    echo "  -r, --restart    Restart tunnel services"
+    echo "  -v, --version    Show version information"
+    echo "  -h, --help       Show this help message"
+    echo ""
+}
+
+case "${1:-}" in
+    -s|--status|"")
+        show_status
+        ;;
+    -l|--logs)
+        show_logs
+        ;;
+    -r|--restart)
+        restart_tunnels
+        ;;
+    -v|--version)
+        echo "Orizon Zero Trust Connect v3.0.0"
+        echo "Hardening CLI Tool"
+        ;;
+    -h|--help|*)
+        show_help
+        ;;
+esac
+CLI_EOF
+
+    chmod +x /usr/local/bin/orizon-hardening
+    print_ok "CLI tool installed: orizon-hardening"
+
+    # Remove old update-motd.d script if exists (we use profile.d now)
+    rm -f /etc/update-motd.d/99-orizon 2>/dev/null || true
+
+    print_info "Run 'orizon-hardening --status' for detailed security info"
+    echo ""
+}
+
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    FINAL SUMMARY                              ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+print_summary() {
+    echo ""
+    echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║              INSTALLATION COMPLETE                            ║${NC}"
+    echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}║${NC}                                                               ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}  Node ID:    $NODE_ID     ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}  Node Name:  $NODE_NAME                                        ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}  Hub:        $HUB_HOST:$HUB_SSH_PORT                           ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}                                                               ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}  Tunnel Configuration:                                        ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}    Terminal: localhost:$TERMINAL_LOCAL_PORT -> Hub:$TERMINAL_REMOTE_PORT    ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}    HTTPS:    localhost:$HTTPS_LOCAL_PORT -> Hub:$HTTPS_REMOTE_PORT     ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}                                                               ${GREEN}║${NC}"
+    echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}║${NC}  Useful Commands:                                             ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}    Check terminal tunnel:                                     ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}      sudo systemctl status orizon-tunnel-terminal             ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}    Check HTTPS tunnel:                                        ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}      sudo systemctl status orizon-tunnel-https                ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}    View logs:                                                 ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}      sudo journalctl -u orizon-tunnel-terminal -f             ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}                                                               ${GREEN}║${NC}"
+    echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    MAIN EXECUTION                             ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+main() {
+    # Check root
+    if [ "$EUID" -ne 0 ]; then
+        echo "This script must be run with sudo or as root"
+        echo "Usage: sudo bash $0"
+        exit 1
+    fi
+
+    print_banner
+
+    # Detect OS
+    detect_os
+    print_info "Detected OS: $OS_NAME ($OS_ID)"
+    print_info "Package Manager: $PKG_MANAGER"
+    echo ""
+
+    # Check for existing installation
+    ACTION="install"
+    check_existing_installation
+    if [ "$EXISTING_INSTALLATION" = "true" ]; then
+        show_existing_status
+
+        if [ -t 0 ]; then
+            prompt_existing_action
+        else
+            print_info "Non-interactive mode: proceeding with upgrade"
+            ACTION="upgrade"
+        fi
+
+        # Handle uninstall
+        if [ "$ACTION" = "uninstall" ]; then
+            uninstall_agent
+            exit 0
+        fi
+
+        # Handle status-only
+        if [ "$ACTION" = "status" ]; then
+            audit_security
+            echo ""
+            print_info "Status check complete. No changes made."
+            exit 0
+        fi
+
+        # For modify or upgrade, continue with installation
+        print_info "Proceeding with $ACTION..."
+        echo ""
+    fi
+
+    # Security Audit
+    audit_security
+
+    # Interactive Hardening Configuration
+    interactive_hardening
+
+    # Show planned changes and confirm
+    print_section "PLANNED CHANGES REVIEW"
+    echo ""
+    echo -e "${WHITE}The following changes are planned:${NC}"
+    echo ""
+
+    # Count hardening changes (use || true to avoid set -e exit)
+    HARDENING_COUNT=0
+    [ "$HARDEN_FIREWALL" = "y" ] && HARDENING_COUNT=$((HARDENING_COUNT + 1)) || true
+    [ "$HARDEN_SSH_ROOT" = "y" ] && HARDENING_COUNT=$((HARDENING_COUNT + 1)) || true
+    [ "$HARDEN_SSH_PASSWORD" = "y" ] && HARDENING_COUNT=$((HARDENING_COUNT + 1)) || true
+    [ "$HARDEN_AUDITD" = "y" ] && HARDENING_COUNT=$((HARDENING_COUNT + 1)) || true
+    [ "$HARDEN_APPARMOR" = "y" ] && HARDENING_COUNT=$((HARDENING_COUNT + 1)) || true
+
+    echo -e "${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│  SECURITY HARDENING ($HARDENING_COUNT changes)                              │${NC}"
+    echo -e "${CYAN}└─────────────────────────────────────────────────────────────┘${NC}"
+
+    if [ $HARDENING_COUNT -gt 0 ]; then
+        [ "$HARDEN_FIREWALL" = "y" ] && echo -e "   ${YELLOW}[H1]${NC} Enable firewall (allow ports: $KEEP_PORTS)"
+        [ "$HARDEN_SSH_ROOT" = "y" ] && echo -e "   ${YELLOW}[H2]${NC} Disable SSH root login"
+        [ "$HARDEN_SSH_PASSWORD" = "y" ] && echo -e "   ${YELLOW}[H3]${NC} Disable SSH password authentication"
+        [ "$HARDEN_AUDITD" = "y" ] && echo -e "   ${YELLOW}[H4]${NC} Install and enable audit daemon"
+        [ "$HARDEN_APPARMOR" = "y" ] && echo -e "   ${YELLOW}[H5]${NC} Enforce AppArmor profiles"
+    else
+        echo "   (No security hardening changes selected)"
+    fi
+    echo ""
+
+    echo -e "${GREEN}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${GREEN}│  ORIZON AGENT INSTALLATION (required)                       │${NC}"
+    echo -e "${GREEN}└─────────────────────────────────────────────────────────────┘${NC}"
+    echo -e "   ${GREEN}[A1]${NC} Install Orizon Agent and SSH keys"
+    echo -e "   ${GREEN}[A2]${NC} Create Terminal tunnel (port $TERMINAL_LOCAL_PORT -> Hub:$TERMINAL_REMOTE_PORT)"
+    echo -e "   ${GREEN}[A3]${NC} Create HTTPS tunnel (port $HTTPS_LOCAL_PORT -> Hub:$HTTPS_REMOTE_PORT)"
+    echo -e "   ${GREEN}[A4]${NC} Enable and start tunnel services"
+    echo ""
+
+    if [ -t 0 ]; then
+        echo -e "${WHITE}Choose an option:${NC}"
+        echo ""
+        echo -e "   [1] ${GREEN}Apply ALL${NC} - Apply hardening + Install agent (recommended)"
+        echo -e "   [2] ${CYAN}Agent ONLY${NC} - Skip hardening, install agent only"
+        echo -e "   [3] ${YELLOW}Review each${NC} - Confirm each hardening change individually"
+        echo -e "   [4] ${RED}Cancel${NC} - Exit without changes"
+        echo ""
+
+        read -p "Select option [1-4] (default: 1): " INSTALL_CHOICE
+        INSTALL_CHOICE=${INSTALL_CHOICE:-1}
+
+        case "$INSTALL_CHOICE" in
+            1)
+                print_ok "Applying all changes..."
+                ;;
+            2)
+                print_info "Skipping hardening, installing agent only..."
+                HARDEN_FIREWALL="n"
+                HARDEN_SSH_ROOT="n"
+                HARDEN_SSH_PASSWORD="n"
+                HARDEN_AUDITD="n"
+                HARDEN_APPARMOR="n"
+                ;;
+            3)
+                echo ""
+                echo -e "${WHITE}Review each hardening change:${NC}"
+                echo ""
+
+                if [ "$HARDEN_FIREWALL" = "y" ]; then
+                    if ! ask_yes_no "   Apply [H1] Enable firewall?" "y"; then
+                        HARDEN_FIREWALL="n"
+                        print_info "Skipped: Firewall"
+                    fi
+                fi
+
+                if [ "$HARDEN_SSH_ROOT" = "y" ]; then
+                    if ! ask_yes_no "   Apply [H2] Disable SSH root login?" "y"; then
+                        HARDEN_SSH_ROOT="n"
+                        print_info "Skipped: SSH root login"
+                    fi
+                fi
+
+                if [ "$HARDEN_SSH_PASSWORD" = "y" ]; then
+                    if ! ask_yes_no "   Apply [H3] Disable SSH password auth?" "y"; then
+                        HARDEN_SSH_PASSWORD="n"
+                        print_info "Skipped: SSH password auth"
+                    fi
+                fi
+
+                if [ "$HARDEN_AUDITD" = "y" ]; then
+                    if ! ask_yes_no "   Apply [H4] Install audit daemon?" "y"; then
+                        HARDEN_AUDITD="n"
+                        print_info "Skipped: Audit daemon"
+                    fi
+                fi
+
+                if [ "$HARDEN_APPARMOR" = "y" ]; then
+                    if ! ask_yes_no "   Apply [H5] Enforce AppArmor?" "y"; then
+                        HARDEN_APPARMOR="n"
+                        print_info "Skipped: AppArmor"
+                    fi
+                fi
+                echo ""
+                print_ok "Review complete, proceeding with selected changes..."
+                ;;
+            4|*)
+                echo ""
+                print_warn "Installation cancelled by user"
+                exit 0
+                ;;
+        esac
+    fi
+    echo ""
+
+    # Apply hardening
+    apply_hardening
+
+    # Install dependencies
+    install_dependencies
+
+    # Setup agent
+    setup_agent
+
+    # Create tunnel services
+    create_tunnel_services
+
+    # Send hardening report
+    send_hardening_report
+
+    # Setup login banner (MOTD)
+    setup_login_banner
+
+    # Print summary
+    print_summary
+}
+
+# Run main
+main "$@"

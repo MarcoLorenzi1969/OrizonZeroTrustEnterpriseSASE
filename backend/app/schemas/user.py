@@ -151,3 +151,12 @@ class ChangePasswordRequest(BaseModel):
     """Change password request schema"""
     current_password: str
     new_password: str = Field(..., min_length=8, max_length=100)
+
+
+class TokenPayload(BaseModel):
+    """JWT token payload for verification"""
+    sub: str
+    role: str
+    exp: int
+    scopes: list = []
+    type: Optional[str] = None

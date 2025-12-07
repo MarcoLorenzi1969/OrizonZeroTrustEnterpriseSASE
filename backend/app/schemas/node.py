@@ -105,6 +105,17 @@ class NodeResponse(NodeBase):
     # Service tunnel (heartbeat/metrics)
     service_tunnel_port: Optional[int] = None
 
+    # Hardening/Security information
+    hardening_firewall: Optional[Dict[str, Any]] = None
+    hardening_antivirus: Optional[Dict[str, Any]] = None
+    hardening_open_ports: Optional[List[Dict[str, Any]]] = None
+    hardening_security_modules: Optional[List[Dict[str, Any]]] = None
+    hardening_updates: Optional[Dict[str, Any]] = None
+    hardening_ssh_config: Optional[Dict[str, Any]] = None
+    hardening_ssl_info: Optional[Dict[str, Any]] = None
+    hardening_audit: Optional[Dict[str, Any]] = None
+    hardening_last_scan: Optional[datetime] = None
+
     class Config:
         from_attributes = True
 

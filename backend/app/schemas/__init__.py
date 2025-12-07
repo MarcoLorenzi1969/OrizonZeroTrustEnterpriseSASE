@@ -4,6 +4,7 @@ For: Marco @ Syneto/Orizon
 """
 
 from app.schemas.user import (
+    TokenPayload,
     UserCreate,
     UserUpdate,
     UserResponse,
@@ -36,6 +37,7 @@ from app.schemas.access_rule import (
 )
 
 __all__ = [
+    "TokenPayload",
     "UserCreate",
     "UserUpdate",
     "UserResponse",

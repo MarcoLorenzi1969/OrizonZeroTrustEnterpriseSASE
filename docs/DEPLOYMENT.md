@@ -292,6 +292,31 @@ docker compose exec backend alembic upgrade head
 docker compose exec -it orizon-postgres psql -U orizon -d orizon_ztc
 ```
 
+### 10. Initialize Default Superuser
+
+Run the init_superuser.py script to create or update the default superuser:
+
+```bash
+# From the project directory
+docker compose exec backend python /app/deploy/init_superuser.py
+
+# Or run directly if Python is available
+cd /opt/orizon-ztc
+python3 deploy/init_superuser.py
+```
+
+## Default Credentials
+
+### Web Administration Interface
+
+| Field | Value |
+|-------|-------|
+| **Email** | marco@syneto.eu |
+| **Password** | Syneto2601AA |
+| **Role** | SUPERUSER |
+
+**Security Note:** Change the default password immediately after initial deployment in production environments.
+
 ## Docker Compose Configuration
 
 ```yaml

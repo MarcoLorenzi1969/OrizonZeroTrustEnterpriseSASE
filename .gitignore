@@ -60,11 +60,18 @@ logs/
 *.temp
 .cache/
 
-# Credentials (IMPORTANT - NO PUSH)
+# Credentials (IMPORTANT - NEVER PUSH)
+.env.local
+.env.credentials
 *credentials*.json
 *secrets*.json
 *.pem
 *.key
+!*.pub
+
+# SSH Keys
+id_ed25519*
+id_rsa*
 !*.pub
 
 # Old docs and code (archived)

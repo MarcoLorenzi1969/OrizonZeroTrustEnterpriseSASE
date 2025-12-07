@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orizon Zero Trust Enterprise SASE - Documentazione Architettura</title>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --accent-blue: #3b82f6;
+            --accent-green: #22c55e;
+            --accent-yellow: #eab308;
+            --accent-red: #ef4444;
+            --border-color: #475569;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar Navigation */
+        .sidebar {
+            width: 280px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+            padding: 20px 0;
+        }
+
+        .logo {
+            padding: 0 20px 20px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        .logo h1 {
+            font-size: 1.2rem;
+            color: var(--accent-blue);
+        }
+
+        .logo span {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .nav-section {
+            padding: 0 10px;
+            margin-bottom: 15px;
+        }
+
+        .nav-section h3 {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            padding: 0 10px;
+            margin-bottom: 8px;
+            letter-spacing: 1px;
+        }
+
+        .nav-link {
+            display: block;
+            padding: 8px 15px;
+            color: var(--text-primary);
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+
+        .nav-link:hover {
+            background: var(--bg-tertiary);
+            color: var(--accent-blue);
+        }
+
+        .nav-link.active {
+            background: var(--accent-blue);
+            color: white;
+        }
+
+        .lang-switcher {
+            padding: 15px 20px;
+            border-top: 1px solid var(--border-color);
+            margin-top: auto;
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            background: var(--bg-secondary);
+        }
+
+        .lang-switcher a {
+            display: inline-block;
+            padding: 6px 12px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            margin-right: 8px;
+        }
+
+        .lang-switcher a:hover, .lang-switcher a.active {
+            background: var(--accent-blue);
+        }
+
+        /* Main Content */
+        .main-content {
+            margin-left: 280px;
+            padding: 40px 60px;
+            max-width: 1200px;
+            flex: 1;
+        }
+
+        .header {
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            color: var(--accent-blue);
+        }
+
+        .meta {
+            display: flex;
+            gap: 20px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .meta span {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        section {
+            margin-bottom: 50px;
+            scroll-margin-top: 20px;
+        }
+
+        h2 {
+            font-size: 1.8rem;
+            color: var(--accent-blue);
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--bg-tertiary);
+        }
+
+        h3 {
+            font-size: 1.3rem;
+            color: var(--text-primary);
+            margin: 25px 0 15px;
+        }
+
+        p {
+            margin-bottom: 15px;
+            color: var(--text-secondary);
+        }
+
+        ul, ol {
+            margin: 15px 0 15px 25px;
+            color: var(--text-secondary);
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        th {
+            background: var(--bg-tertiary);
+            padding: 12px 15px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-primary);
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: var(--bg-tertiary);
+        }
+
+        /* Code blocks */
+        pre {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-x: auto;
+            margin: 20px 0;
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+
+        code {
+            background: var(--bg-tertiary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 0.85rem;
+            color: var(--accent-yellow);
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+            color: var(--text-primary);
+        }
+
+        /* Status badges */
+        .status-aligned {
+            display: inline-block;
+            padding: 2px 8px;
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--accent-green);
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+
+        .check {
+            color: var(--accent-green);
+            font-weight: bold;
+        }
+
+        .cross {
+            color: var(--accent-red);
+            font-weight: bold;
+        }
+
+        /* Feature cards */
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .feature-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .feature-card strong {
+            color: var(--accent-blue);
+        }
+
+        /* Diagram */
+        .diagram {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            margin: 20px 0;
+            overflow-x: auto;
+        }
+
+        .diagram pre {
+            display: inline-block;
+            text-align: left;
+            background: none;
+            border: none;
+            padding: 0;
+            margin: 0;
+            color: var(--accent-blue);
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 60px;
+                padding: 10px 0;
+            }
+
+            .sidebar .logo h1, .sidebar .logo span,
+            .sidebar .nav-section h3, .sidebar .nav-link span,
+            .sidebar .lang-switcher span {
+                display: none;
+            }
+
+            .nav-link {
+                padding: 12px;
+                text-align: center;
+            }
+
+            .main-content {
+                margin-left: 60px;
+                padding: 20px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                display: none;
+            }
+
+            .main-content {
+                margin-left: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <div class="logo">
+                <h1>Orizon ZTNA</h1>
+                <span>Documentazione Architettura</span>
+            </div>
+
+            <div class="nav-section">
+                <h3>Introduzione</h3>
+                <a href="#panoramica" class="nav-link">Panoramica</a>
+                <a href="#ambiente-sviluppo" class="nav-link">Ambiente di Sviluppo</a>
+                <a href="#topologia" class="nav-link">Topologia Infrastruttura</a>
+            </div>
+
+            <div class="nav-section">
+                <h3>Architettura</h3>
+                <a href="#backend" class="nav-link">Architettura Backend</a>
+                <a href="#frontend" class="nav-link">Architettura Frontend</a>
+                <a href="#servizi" class="nav-link">Servizi e Microservizi</a>
+            </div>
+
+            <div class="nav-section">
+                <h3>Dati e Sicurezza</h3>
+                <a href="#database" class="nav-link">Layer Database</a>
+                <a href="#sicurezza" class="nav-link">Componenti Sicurezza</a>
+            </div>
+
+            <div class="nav-section">
+                <h3>Distribuzione</h3>
+                <a href="#distribuzione" class="nav-link">Distribuzione Software</a>
+                <a href="#nodi-edge" class="nav-link">Nodi Edge</a>
+                <a href="#versioni" class="nav-link">Storico Versioni</a>
+            </div>
+
+            <div class="lang-switcher">
+                <span>Lingua:</span>
+                <a href="ARCHITECTURE_EN.html">EN</a>
+                <a href="ARCHITECTURE_IT.html" class="active">IT</a>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="header">
+                <h1>Orizon Zero Trust Enterprise SASE</h1>
+                <div class="meta">
+                    <span>Versione: 3.0.1</span>
+                    <span>Aggiornato: 07-12-2025</span>
+                    <span>Autore: Marco Lorenzi @ Syneto/Orizon</span>
+                </div>
+            </header>
+
+            <!-- Panoramica -->
+            <section id="panoramica">
+                <h2>Panoramica</h2>
+                <p>Orizon Zero Trust Enterprise SASE e una soluzione completa di Zero Trust Network Access (ZTNA) che fornisce accesso remoto sicuro alle risorse aziendali attraverso tunnel SSH inversi, terminali web e connessioni RDP. La piattaforma implementa un'architettura hub-and-spoke dove i nodi edge si connettono agli hub centrali tramite tunnel crittografati.</p>
+
+                <h3>Caratteristiche Principali</h3>
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <strong>Architettura Zero Trust</strong>
+                        <p>Nessuna fiducia implicita, verifica ogni connessione</p>
+                    </div>
+                    <div class="feature-card">
+                        <strong>Tunnel SSH Inversi</strong>
+                        <p>Connettivita sicura senza regole firewall in ingresso</p>
+                    </div>
+                    <div class="feature-card">
+                        <strong>Supporto Multi-Hub</strong>
+                        <p>Infrastruttura hub ridondante per alta disponibilita</p>
+                    </div>
+                    <div class="feature-card">
+                        <strong>Terminale Web</strong>
+                        <p>Accesso SSH da browser ai nodi remoti</p>
+                    </div>
+                    <div class="feature-card">
+                        <strong>RDP Diretto</strong>
+                        <p>Supporto nativo Remote Desktop Protocol</p>
+                    </div>
+                    <div class="feature-card">
+                        <strong>Controllo Accessi Basato su Ruoli</strong>
+                        <p>Permessi granulari con ruoli gerarchici</p>
+                    </div>
+                    <div class="feature-card">
+                        <strong>Supporto Multi-Tenant</strong>
+                        <p>Ambienti isolati per diverse organizzazioni</p>
+                    </div>
+                    <div class="feature-card">
+                        <strong>Autenticazione a Due Fattori</strong>
+                        <p>2FA basata su TOTP per sicurezza avanzata</p>
+                    </div>
+                    <div class="feature-card">
+                        <strong>Integrazione SSO</strong>
+                        <p>Funzionalita Single Sign-On</p>
+                    </div>
+                    <div class="feature-card">
+                        <strong>Monitoraggio Real-time</strong>
+                        <p>Stato nodi, metriche e tracciamento geolocalizzazione</p>
+                    </div>
+                    <div class="feature-card">
+                        <strong>Analisi Hardening</strong>
+                        <p>Valutazione postura di sicurezza per nodi edge</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Ambiente di Sviluppo -->
+            <section id="ambiente-sviluppo">
+                <h2>Ambiente di Sviluppo</h2>
+
+                <h3>Stack Tecnologico</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Layer</th>
+                            <th>Tecnologia</th>
+                            <th>Versione</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Framework Backend</td><td>FastAPI</td><td>0.104+</td></tr>
+                        <tr><td>Runtime Python</td><td>Python</td><td>3.11+</td></tr>
+                        <tr><td>Framework Frontend</td><td>React + Vite</td><td>18.x / 5.x</td></tr>
+                        <tr><td>Database Primario</td><td>PostgreSQL</td><td>15</td></tr>
+                        <tr><td>Layer Cache</td><td>Redis</td><td>7</td></tr>
+                        <tr><td>Storage Log</td><td>MongoDB</td><td>7</td></tr>
+                        <tr><td>Containerizzazione</td><td>Docker + Compose</td><td>24.x</td></tr>
+                        <tr><td>Web Server</td><td>Nginx</td><td>1.24+</td></tr>
+                        <tr><td>Server SSH</td><td>OpenSSH</td><td>9.x</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Struttura Progetto</h3>
+                <pre><code>/OrizonZeroTrustEnterpriseSASE/
+├── backend/              # Applicazione backend FastAPI
+├── frontend/             # Applicazione frontend React/Vite
+├── script-generator/     # Generatore script provisioning Node.js
+├── ssh-tunnel-server/    # Server tunnel SSH Docker
+├── packages/             # Pacchetti agent multi-piattaforma
+├── deploy/               # Script di deployment
+├── docs/                 # Documentazione
+├── kubernetes/           # Manifest K8s (futuro)
+└── tests/                # Test di integrazione</code></pre>
+            </section>
+
+            <!-- Topologia Infrastruttura -->
+            <section id="topologia">
+                <h2>Topologia Infrastruttura</h2>
+
+                <div class="diagram">
+                    <pre>
+                                    ┌─────────────────┐
+                                    │     GitHub      │
+                                    │   Repository    │
+                                    └────────┬────────┘
+                                             │
+                    ┌────────────────────────┼────────────────────────┐
+                    │                        │                        │
+                    ▼                        ▼                        ▼
+           ┌───────────────┐        ┌───────────────┐        ┌───────────────┐
+           │  LOCAL DEV    │        │    HUB 1      │        │    HUB 2      │
+           │   (macOS)     │        │139.59.149.48  │        │68.183.219.222 │
+           └───────────────┘        └───────┬───────┘        └───────┬───────┘
+                                            │                        │
+                                            │    Tunnel Inversi      │
+                                    ┌───────┴────────────────────────┴───────┐
+                                    │                                        │
+                                    ▼                                        ▼
+                           ┌─────────────────┐                      ┌─────────────────┐
+                           │ Windows11-Edge  │                      │ Edge-Ubuntu     │
+                           │     Test        │                      │     Test        │
+                           │  (Parallels)    │                      │   (VM/Cloud)    │
+                           └─────────────────┘                      └─────────────────┘
+                    </pre>
+                </div>
+
+                <h3>Dettagli Ambienti</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Ambiente</th>
+                            <th>IP/Posizione</th>
+                            <th>Scopo</th>
+                            <th>Sistema Operativo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>LOCAL</strong></td><td>macOS Sequoia</td><td>Sviluppo e Test</td><td>macOS 15.x</td></tr>
+                        <tr><td><strong>HUB 1</strong></td><td>139.59.149.48</td><td>Hub Produzione (Primario)</td><td>Ubuntu 24.04</td></tr>
+                        <tr><td><strong>HUB 2</strong></td><td>68.183.219.222</td><td>Hub Produzione (Secondario)</td><td>Ubuntu 24.04</td></tr>
+                        <tr><td><strong>GitHub</strong></td><td>Cloud</td><td>Controllo Versione</td><td>-</td></tr>
+                        <tr><td><strong>Windows11-Edge-Test</strong></td><td>VM Parallels</td><td>Test Edge Windows</td><td>Windows 11 Pro</td></tr>
+                        <tr><td><strong>Edge-Ubuntu-Test</strong></td><td>192.168.x.x</td><td>Test Edge Linux</td><td>Ubuntu 22.04</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Architettura Backend -->
+            <section id="backend">
+                <h2>Architettura Backend</h2>
+
+                <h3>Endpoint API</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Modulo</th>
+                            <th>File</th>
+                            <th>Descrizione</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Autenticazione</td><td><code>auth.py</code></td><td>Login JWT, refresh token, logout</td></tr>
+                        <tr><td>Gestione Utenti</td><td><code>user_management.py</code></td><td>CRUD utenti, assegnazione ruoli, gerarchia</td></tr>
+                        <tr><td>Nodi</td><td><code>nodes.py</code></td><td>Registrazione nodi edge, stato, hardening</td></tr>
+                        <tr><td>Tunnel</td><td><code>tunnels.py</code></td><td>Gestione tunnel, dashboard, keep-alive</td></tr>
+                        <tr><td>Rete</td><td><code>network.py</code></td><td>Topologia, stato connettivita</td></tr>
+                        <tr><td>Gruppi</td><td><code>groups.py</code></td><td>Raggruppamento nodi, gestione membri</td></tr>
+                        <tr><td>Tenant</td><td><code>tenants.py</code></td><td>Gestione organizzazioni multi-tenant</td></tr>
+                        <tr><td>ACL</td><td><code>acl.py</code></td><td>Liste Controllo Accessi, permessi</td></tr>
+                        <tr><td>Provisioning</td><td><code>provision.py</code></td><td>Provisioning nodi, generazione script</td></tr>
+                        <tr><td>Terminale</td><td><code>terminal.py</code></td><td>Proxy terminale WebSocket</td></tr>
+                        <tr><td>Metriche</td><td><code>metrics.py</code></td><td>Raccolta metriche salute nodi</td></tr>
+                        <tr><td>Audit</td><td><code>audit.py</code></td><td>Log audit, tracciamento attivita</td></tr>
+                        <tr><td>2FA</td><td><code>twofa.py</code></td><td>Setup TOTP, verifica</td></tr>
+                        <tr><td>SSO</td><td><code>sso.py</code></td><td>Integrazione Single Sign-On</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Servizi Business</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Servizio</th>
+                            <th>Descrizione</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>user_service.py</code></td><td>Operazioni CRUD utenti</td></tr>
+                        <tr><td><code>permission_service.py</code></td><td>Motore valutazione permessi</td></tr>
+                        <tr><td><code>hierarchy_service.py</code></td><td>Gestione gerarchia ruoli</td></tr>
+                        <tr><td><code>node_provision_service.py</code></td><td>Workflow provisioning</td></tr>
+                        <tr><td><code>node_visibility_service.py</code></td><td>Controllo accesso nodi</td></tr>
+                        <tr><td><code>tunnel_service.py</code></td><td>Gestione ciclo vita tunnel</td></tr>
+                        <tr><td><code>group_service.py</code></td><td>Operazioni sui gruppi</td></tr>
+                        <tr><td><code>tenant_service.py</code></td><td>Isolamento tenant</td></tr>
+                        <tr><td><code>acl_service.py</code></td><td>Elaborazione regole ACL</td></tr>
+                        <tr><td><code>audit_service.py</code></td><td>Operazioni log audit</td></tr>
+                        <tr><td><code>totp_service.py</code></td><td>Implementazione 2FA TOTP</td></tr>
+                        <tr><td><code>sso_service.py</code></td><td>Gestione protocollo SSO</td></tr>
+                        <tr><td><code>geolocation_service.py</code></td><td>Geolocalizzazione IP (GeoLite2)</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Architettura Frontend -->
+            <section id="frontend">
+                <h2>Architettura Frontend</h2>
+
+                <h3>Pagine</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Pagina</th>
+                            <th>Descrizione</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>LoginPage.jsx</code></td><td>Autenticazione con supporto 2FA</td></tr>
+                        <tr><td><code>DashboardPage.jsx</code></td><td>Panoramica con statistiche e mappe</td></tr>
+                        <tr><td><code>NodesPage.jsx</code></td><td>Gestione nodi con info hardening</td></tr>
+                        <tr><td><code>TunnelsDashboard.jsx</code></td><td>Monitoraggio tunnel attivi</td></tr>
+                        <tr><td><code>UsersPage.jsx</code></td><td>Amministrazione utenti</td></tr>
+                        <tr><td><code>GroupsPage.jsx</code></td><td>Gestione gruppi</td></tr>
+                        <tr><td><code>EdgeProvisioningPage.jsx</code></td><td>Wizard onboarding nodi</td></tr>
+                        <tr><td><code>RDPDirectPage.jsx</code></td><td>Gestore connessioni RDP</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Componenti</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Componente</th>
+                            <th>Descrizione</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>WebTerminal.jsx</code></td><td>Terminale SSH con Xterm.js</td></tr>
+                        <tr><td><code>RDPDirectTest.jsx</code></td><td>Componente connessione RDP</td></tr>
+                        <tr><td><code>DebugPanel.jsx</code></td><td>Strumenti debug sviluppatore</td></tr>
+                        <tr><td><code>DebugOverlay.jsx</code></td><td>Informazioni debug flottanti</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Servizi e Microservizi -->
+            <section id="servizi">
+                <h2>Servizi e Microservizi</h2>
+
+                <h3>Stack Docker Compose</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Servizio</th>
+                            <th>Container</th>
+                            <th>Porta</th>
+                            <th>Descrizione</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Backend</td><td>orizon-backend</td><td>8000</td><td>Applicazione FastAPI</td></tr>
+                        <tr><td>PostgreSQL</td><td>orizon-postgres</td><td>5432</td><td>Database primario</td></tr>
+                        <tr><td>Redis</td><td>orizon-redis</td><td>6379</td><td>Store sessioni/cache</td></tr>
+                        <tr><td>MongoDB</td><td>orizon-mongodb</td><td>27017</td><td>Storage log audit</td></tr>
+                        <tr><td>Tunnel SSH</td><td>orizon-ssh-tunnel</td><td>2222</td><td>Server tunnel inversi</td></tr>
+                        <tr><td>Script Generator</td><td>orizon-script-generator</td><td>3000</td><td>Script provisioning</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Layer Database -->
+            <section id="database">
+                <h2>Layer Database</h2>
+
+                <h3>Schema PostgreSQL</h3>
+                <div class="diagram">
+                    <pre>
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   users     │────▶│   groups    │────▶│   nodes     │
+└─────────────┘     └─────────────┘     └─────────────┘
+       │                   │                   │
+       ▼                   ▼                   ▼
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│ permissions │     │access_rules │     │   tunnels   │
+└─────────────┘     └─────────────┘     └─────────────┘
+       │
+       ▼
+┌─────────────┐
+│   tenants   │
+└─────────────┘
+                    </pre>
+                </div>
+
+                <h3>Collezioni MongoDB</h3>
+                <ul>
+                    <li><code>audit_logs</code>: Tracciamento attivita utente</li>
+                    <li><code>node_metrics</code>: Dati performance storici</li>
+                    <li><code>tunnel_events</code>: Log connessioni</li>
+                </ul>
+            </section>
+
+            <!-- Componenti Sicurezza -->
+            <section id="sicurezza">
+                <h2>Componenti Sicurezza</h2>
+
+                <h3>Flusso Autenticazione</h3>
+                <ol>
+                    <li><strong>Login</strong>: Email/password → Token JWT access + refresh</li>
+                    <li><strong>2FA</strong>: Verifica TOTP opzionale</li>
+                    <li><strong>SSO</strong>: Integrazione IdP esterno</li>
+                    <li><strong>Token Refresh</strong>: Rinnovo automatico token</li>
+                </ol>
+
+                <h3>Gerarchia Ruoli</h3>
+                <pre><code>SUPERUSER (Proprietario Sistema)
+    └── SUPER_ADMIN (Admin Piattaforma)
+            └── ADMIN (Admin Tenant)
+                    └── USER (Utente Standard)
+                            └── VIEWER (Sola Lettura)</code></pre>
+
+                <h3>Campi Hardening Nodi</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Campo</th>
+                            <th>Descrizione</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>hardening_firewall</code></td><td>Stato firewall e regole</td></tr>
+                        <tr><td><code>hardening_antivirus</code></td><td>Stato AV/Defender</td></tr>
+                        <tr><td><code>hardening_open_ports</code></td><td>Lista porte in ascolto</td></tr>
+                        <tr><td><code>hardening_security_modules</code></td><td>Stato SELinux/AppArmor</td></tr>
+                        <tr><td><code>hardening_ssh_config</code></td><td>Impostazioni sicurezza SSH</td></tr>
+                        <tr><td><code>hardening_ssl_info</code></td><td>Configurazione TLS</td></tr>
+                        <tr><td><code>hardening_audit</code></td><td>Stato logging audit</td></tr>
+                        <tr><td><code>hardening_updates</code></td><td>Aggiornamenti sicurezza pendenti</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Distribuzione Software -->
+            <section id="distribuzione">
+                <h2>Matrice Distribuzione Software</h2>
+
+                <h3>Moduli Backend</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Modulo</th>
+                            <th>LOCAL</th>
+                            <th>HUB 1</th>
+                            <th>HUB 2</th>
+                            <th>GitHub</th>
+                            <th>Stato</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>auth.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>user_management.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>nodes.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>tunnels.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>network.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>groups.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>tenants.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>acl.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>provision.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>terminal.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>metrics.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>audit.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>twofa.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>sso.py</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Pagine Frontend</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Pagina</th>
+                            <th>LOCAL</th>
+                            <th>HUB 1</th>
+                            <th>HUB 2</th>
+                            <th>GitHub</th>
+                            <th>Stato</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>DashboardPage.jsx</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>NodesPage.jsx</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>TunnelsDashboard.jsx</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>UsersPage.jsx</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>GroupsPage.jsx</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>LoginPage.jsx</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>EdgeProvisioningPage.jsx</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                        <tr><td><code>RDPDirectPage.jsx</code></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="status-aligned">Allineato</span></td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Servizi Infrastruttura</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Servizio</th>
+                            <th>LOCAL</th>
+                            <th>HUB 1</th>
+                            <th>HUB 2</th>
+                            <th>Descrizione</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>PostgreSQL</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td>Database primario</td></tr>
+                        <tr><td>Redis</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td>Cache/sessioni</td></tr>
+                        <tr><td>MongoDB</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td>Log audit</td></tr>
+                        <tr><td>Server Tunnel SSH</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td>Porta 2222</td></tr>
+                        <tr><td>Script Generator</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td>Porta 3000</td></tr>
+                        <tr><td>Nginx</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td>Reverse proxy (config in /nginx)</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Nodi Edge -->
+            <section id="nodi-edge">
+                <h2>Nodi Edge</h2>
+
+                <h3>Ambiente di Test</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nodo</th>
+                            <th>Tipo</th>
+                            <th>SO</th>
+                            <th>Connessione Hub</th>
+                            <th>Stato Agent</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>Windows11-Edge-Test</strong></td><td>Windows</td><td>Windows 11 Pro</td><td>HUB 1 + HUB 2</td><td><span class="status-aligned">Installato</span></td></tr>
+                        <tr><td><strong>Edge-Ubuntu-Test</strong></td><td>Linux</td><td>Ubuntu 22.04</td><td>HUB 1 + HUB 2</td><td><span class="status-aligned">Installato</span></td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Componenti Agent Edge</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Componente</th>
+                            <th>Windows</th>
+                            <th>Linux</th>
+                            <th>macOS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>AutoSSH</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td></tr>
+                        <tr><td>Servizio Tunnel</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td></tr>
+                        <tr><td>Agent Heartbeat</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td></tr>
+                        <tr><td>Scanner Hardening</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td></tr>
+                        <tr><td>Coppia Chiavi SSH</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Allocazione Porte Tunnel</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Range Porte</th>
+                            <th>Scopo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>20000-29999</td><td>Tunnel applicazioni</td></tr>
+                        <tr><td>30000-39999</td><td>Tunnel servizio (heartbeat/metriche)</td></tr>
+                        <tr><td>40000-49999</td><td>Riservato per uso futuro</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Storico Versioni -->
+            <section id="versioni">
+                <h2>Storico Versioni</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Versione</th>
+                            <th>Data</th>
+                            <th>Modifiche</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>3.0.1</td><td>07-12-2025</td><td>Sincronizzazione ambienti, schema hardening</td></tr>
+                        <tr><td>3.0.0</td><td>06-12-2025</td><td>Script installazione avanzati</td></tr>
+                        <tr><td>2.1.1</td><td>04-12-2025</td><td>Hardening enterprise, SSO</td></tr>
+                        <tr><td>2.1.0</td><td>03-12-2025</td><td>Pacchetti multi-hub</td></tr>
+                        <tr><td>2.0.0</td><td>30-11-2025</td><td>Release iniziale SASE</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <footer style="margin-top: 50px; padding-top: 20px; border-top: 1px solid var(--border-color); color: var(--text-secondary); font-size: 0.9rem;">
+                <p><strong>Proprietario Progetto:</strong> Marco Lorenzi | <strong>Organizzazione:</strong> Syneto / Orizon</p>
+                <p><strong>Repository:</strong> <a href="https://github.com/MarcoLorenzi1969/OrizonZeroTrustEnterpriseSASE" style="color: var(--accent-blue);">github.com/MarcoLorenzi1969/OrizonZeroTrustEnterpriseSASE</a></p>
+            </footer>
+        </main>
+    </div>
+
+    <script>
+        // Highlight active nav link on scroll
+        const sections = document.querySelectorAll('section[id]');
+        const navLinks = document.querySelectorAll('.nav-link');
+
+        window.addEventListener('scroll', () => {
+            let current = '';
+            sections.forEach(section => {
+                const sectionTop = section.offsetTop;
+                if (scrollY >= sectionTop - 100) {
+                    current = section.getAttribute('id');
+                }
+            });
+
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === '#' + current) {
+                    link.classList.add('active');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

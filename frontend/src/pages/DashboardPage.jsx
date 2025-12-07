@@ -1,10 +1,11 @@
-// Build: 2024-12-06T01:00 - Force cache refresh
+// Build: 2024-12-07T18:00 - D3 NodeResources + TunnelGraph + WorldMap
 import { useEffect, useState, memo } from 'react'
 import { Server, Users, Activity, TrendingUp, Box, Play, Square, Shield, Link, Terminal, Lock, Globe, Cpu, HardDrive, MemoryStick, MapPin } from 'lucide-react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts'
 import api from '../services/api'
 import { debugData } from '../utils/debugLogger'
-import InteractiveNodeMap from '../components/maps/InteractiveNodeMap'
+import D3WorldMap from '../components/maps/D3WorldMap'
+import D3TunnelGraph from '../components/charts/D3TunnelGraph'
+import D3NodeResources from '../components/charts/D3NodeResources'
 
 
 function StatCard({ title, value, icon: Icon, change, color }) {
@@ -44,7 +45,6 @@ function DashboardPage() {
   const [nodes, setNodes] = useState([])
   const [tunnels, setTunnels] = useState([])
   const [nodeMetrics, setNodeMetrics] = useState([])
-  const [tunnelsByType, setTunnelsByType] = useState([])
   const [recentActivity, setRecentActivity] = useState([])
   const [nodesWithGeo, setNodesWithGeo] = useState([])
   const [loading, setLoading] = useState(true)
@@ -124,15 +124,6 @@ function DashboardPage() {
         setNodesWithGeo(nodeItems)
       }
 
-      // Build tunnels by type for pie chart
-      const tunnelTypes = tunnelItems.reduce((acc, t) => {
-        const type = t.application || 'OTHER'
-        acc[type] = (acc[type] || 0) + 1
-        return acc
-      }, {})
-      const pieData = Object.entries(tunnelTypes).map(([name, value]) => ({ name, value }))
-      setTunnelsByType(pieData)
-
       // Build recent activity from real data
       const activities = []
 
@@ -179,9 +170,6 @@ function DashboardPage() {
       </div>
     )
   }
-
-  // Colors for pie chart
-  const COLORS = ['#22c55e', '#06b6d4', '#8b5cf6', '#f59e0b', '#ef4444']
 
   return (
     <div className="space-y-6 p-6">
@@ -233,136 +221,26 @@ function DashboardPage() {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Node Resources Chart - Improved for multiple nodes */}
-        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Cpu className="w-5 h-5 text-blue-400" />
-            Node Resources
-            <span className="text-sm font-normal text-slate-400 ml-2">({nodeMetrics.length} nodes)</span>
-          </h2>
-          {nodeMetrics.length > 0 ? (
-            <div className={nodeMetrics.length > 5 ? 'overflow-y-auto max-h-[300px]' : ''}>
-              <ResponsiveContainer width="100%" height={Math.max(250, nodeMetrics.length * 50)}>
-                <BarChart
-                  data={nodeMetrics}
-                  layout="vertical"
-                  margin={{ top: 5, right: 30, left: 10, bottom: 5 }}
-                  barGap={2}
-                  barCategoryGap="20%"
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={true} vertical={false} />
-                  <XAxis
-                    type="number"
-                    domain={[0, 100]}
-                    stroke="#94a3b8"
-                    tickFormatter={(v) => `${v}%`}
-                    axisLine={{ stroke: '#475569' }}
-                    tickLine={{ stroke: '#475569' }}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    stroke="#94a3b8"
-                    width={90}
-                    tick={{ fontSize: 12 }}
-                    axisLine={{ stroke: '#475569' }}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#1e293b',
-                      border: '1px solid #334155',
-                      borderRadius: '8px',
-                      color: '#fff',
-                    }}
-                    formatter={(value, name) => [`${value}%`, name]}
-                    labelFormatter={(label) => {
-                      const node = nodeMetrics.find(n => n.name === label)
-                      return node?.fullName || label
-                    }}
-                  />
-                  <Legend
-                    wrapperStyle={{ paddingTop: '10px' }}
-                    iconType="circle"
-                  />
-                  <Bar
-                    dataKey="cpu"
-                    name="CPU"
-                    fill="#3b82f6"
-                    radius={[0, 4, 4, 0]}
-                    maxBarSize={15}
-                  />
-                  <Bar
-                    dataKey="memory"
-                    name="Memory"
-                    fill="#8b5cf6"
-                    radius={[0, 4, 4, 0]}
-                    maxBarSize={15}
-                  />
-                  <Bar
-                    dataKey="disk"
-                    name="Disk"
-                    fill="#06b6d4"
-                    radius={[0, 4, 4, 0]}
-                    maxBarSize={15}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="h-[250px] flex items-center justify-center text-slate-500">
-              No node data available
-            </div>
-          )}
-        </div>
+        {/* Node Resources - D3 Animated Bar Chart Race */}
+        <D3NodeResources
+          nodes={nodesWithGeo}
+          title="Node Resources"
+        />
 
-        {/* Tunnels by Type Pie Chart */}
-        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-cyan-400" />
-            Tunnels by Service Type
-          </h2>
-          {tunnelsByType.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={tunnelsByType}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {tunnelsByType.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: '8px',
-                    color: '#fff',
-                  }}
-                />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-[250px] flex items-center justify-center text-slate-500">
-              No tunnel data available
-            </div>
-          )}
-        </div>
+        {/* Tunnel Interconnections - Force-Directed Graph */}
+        <D3TunnelGraph
+          nodes={nodesWithGeo}
+          tunnels={tunnels}
+          title="Tunnel Interconnections"
+        />
       </div>
 
-      {/* Interactive World Map with Geolocation */}
-      <InteractiveNodeMap
+      {/* Interactive World Map with Globe/Flat transition */}
+      <D3WorldMap
         nodes={nodesWithGeo}
         highlightedNodeId={highlightedNodeId}
         onNodeSelect={(node) => setHighlightedNodeId(node?.id || null)}
+        initialView="globe"
       />
 
       {/* Active Nodes Grid - Using nodesWithGeo for geo data */}
